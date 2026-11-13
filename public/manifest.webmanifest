@@ -1,0 +1,9 @@
+
+{
+  "name": "My Slim Journey",
+  "short_name": "Slim Journey",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fbf8f6",
+  "theme_color": "#fbf8f6"
+}
