@@ -611,7 +611,7 @@ async function showApp() {
           activity_type: f.get("activity_type"),
           duration_minutes: Number(f.get("duration_minutes") || 0),
           calories_burned: f.get("calories_burned")
-            ? Number(f.get("calories_burned)) : null,
+  ? Number(f.get("calories_burned")) : null,
           steps: f.get("steps") ? Number(f.get("steps")) : null,
           logged_at: new Date().toISOString()
         });
