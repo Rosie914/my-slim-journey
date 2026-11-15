@@ -11,62 +11,66 @@ const app = document.querySelector("#app");
 
 let currentUser = null;
 let currentTab = "home";
+let profile = null;
+let stages = [];
+let latestWeight = null;
 
-function showLogin() {
-  app.innerHTML = `
-    <div class="login-page">
-      <h1>♡ My Slim Journey</h1>
-      <p>Every day, a healthier me.</p>
+const today = () => {
+  const d = new Date();
+  const offset = d.getTimezoneOffset();
+  return new Date(d.getTime() - offset * 60000)
+    .toISOString().slice(0, 10);
+};
 
-      <form id="loginForm">
-        <input name="email" type="email"
-          placeholder="Email" required>
+function escapeHTML(value) {
+  return String(value ?? "").replace(/[&<>"']/g, char =>
+    ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;"
+    }[char])
+  );
+}
 
-        <input name="password" type="password"
-          placeholder="Password" required minlength="6">
+function showMessage(message) {
+  alert(message);
+}
 
-        <button type="submit">登入</button>
-        <button type="button" id="signup">建立帳號</button>
-      </form>
+async function loadProfile() {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("id", currentUser.id)
+    .maybeSingle();
 
-      <p id="message"></p>
-    </div>
-  `;
+  if (error) throw error;
+  profile = data;
+}
 
-  document.querySelector("#loginForm").onsubmit =
-    async (event) => {
-      event.preventDefault();
+async function loadStages() {
+  const { data, error } = await supabase
+    .from("goal_stages")
+    .select("*")
+    .eq("user_id", currentUser.id)
+    .order("sort_order", { ascending: true })
+    .order("target_date", { ascending: true });
 
-      const form = new FormData(event.target);
+  if (error) throw error;
+  stages = data || [];
+}
 
-      const { error } =
-        await supabase.auth.signInWithPassword({
-          email: form.get("email"),
-          password: form.get("password")
-        });
+async function loadLatestWeight() {
+  const { data, error } = await supabase
+    .from("weight_logs")
+    .select("weight_kg, logged_at")
+    .eq("user_id", currentUser.id)
+    .order("logged_at", { ascending: false })
+    .limit(1);
 
-      if (error) {
-        document.querySelector("#message").textContent =
-          error.message;
-      } else {
-        await refresh();
-      }
-    };
-
-  document.querySelector("#signup").onclick =
-    async () => {
-      const form = new FormData(
-        document.querySelector("#loginForm")
-      );
-
-      const { error } = await supabase.auth.signUp({
-        email: form.get("email"),
-        password: form.get("password")
-      });
-
-      document.querySelector("#message").textContent =
-        error ? error.message : "請到 Email 收取驗證信。";
-    };
+  if (error) throw error;
+  latestWeight = data?.[0] || null;
 }
 
 async function getRows(table, dateColumn) {
@@ -81,18 +85,131 @@ async function getRows(table, dateColumn) {
   return data || [];
 }
 
+function showLogin() {
+  app.innerHTML = `
+    <div class="login-page">
+      <h1>♡ My Slim Journey</h1>
+      <p>Every day, a healthier me.</p>
+
+      <form id="loginForm">
+        <input name="email" type="email"
+          placeholder="Email" required>
+        <input name="password" type="password"
+          placeholder="Password" required minlength="6">
+        <button type="submit">登入</button>
+        <button type="button" id="signup">建立帳號</button>
+      </form>
+      <p id="message"></p>
+    </div>
+  `;
+
+  document.querySelector("#loginForm").onsubmit = async event => {
+    event.preventDefault();
+    const form = new FormData(event.target);
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email: form.get("email"),
+      password: form.get("password")
+    });
+
+    if (error) {
+      document.querySelector("#message").textContent = error.message;
+    } else {
+      await refresh();
+    }
+  };
+
+  document.querySelector("#signup").onclick = async () => {
+    const form = new FormData(
+      document.querySelector("#loginForm")
+    );
+
+    const { error } = await supabase.auth.signUp({
+      email: form.get("email"),
+      password: form.get("password")
+    });
+
+    document.querySelector("#message").textContent =
+      error ? error.message : "請到 Email 收取驗證信。";
+  };
+}
+
+function renderHome(totals) {
+  const current = latestWeight
+    ? Number(latestWeight.weight_kg)
+    : null;
+
+  const target = profile?.target_weight_kg
+    ? Number(profile.target_weight_kg)
+    : null;
+
+  const activeStage = stages.find(stage =>
+    new Date(stage.target_date + "T23:59:59") >= new Date()
+  );
+
+  const stageTarget = activeStage
+    ? Number(activeStage.target_weight_kg)
+    : target;
+
+  const remaining = current !== null && stageTarget !== null
+    ? Math.max(0, current - stageTarget)
+    : null;
+
+  return `
+    <section class="card">
+      <p class="eyebrow">TODAY'S NUTRITION</p>
+      <h2>${Math.round(totals.calories)} kcal</h2>
+      <div class="macros">
+        <div><b>${totals.protein.toFixed(1)}g</b><span>蛋白質</span></div>
+        <div><b>${totals.carbs.toFixed(1)}g</b><span>碳水</span></div>
+        <div><b>${totals.fat.toFixed(1)}g</b><span>脂肪</span></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <p class="eyebrow">MY WEIGHT JOURNEY</p>
+      <h3>目前體重</h3>
+      <h2>${current !== null ? current.toFixed(1) + " kg" : "尚未紀錄"}</h2>
+      <p>長期目標：${target !== null ? target + " kg" : "尚未設定"}</p>
+      ${
+        activeStage
+          ? `<p>目前階段：${escapeHTML(activeStage.stage_name)}</p>
+             <p>階段目標：${stageTarget} kg</p>
+             <p>距離階段目標：${remaining.toFixed(1)} kg</p>
+             <p>目標日期：${activeStage.target_date}</p>`
+          : "<p>請到「設定」新增減重階段。</p>"
+      }
+    </section>
+
+    <section class="card">
+      <h3>今日活動</h3>
+      <p class="muted">尚未連接 Apple Health，活動消耗及步數請先手動紀錄。</p>
+    </section>
+
+    <section class="card">
+      <h3>AI Coach</h3>
+      <p>完成飲食、體重及運動紀錄後，才能進行有根據的個人化分析。</p>
+      <p class="muted">AI 主動分析功能將於後續版本加入。</p>
+    </section>
+  `;
+}
+
 async function showApp() {
   if (!currentUser) return showLogin();
 
   let content = "";
 
   try {
+    await Promise.all([
+      loadProfile(),
+      loadStages(),
+      loadLatestWeight()
+    ]);
+
     if (currentTab === "home") {
       const meals = await getRows("meals", "eaten_at");
-      const today = new Date().toISOString().slice(0, 10);
-
       const todaysMeals = meals.filter(
-        meal => meal.eaten_at.slice(0, 10) === today
+        meal => meal.eaten_at?.slice(0, 10) === today()
       );
 
       let items = [];
@@ -115,22 +232,7 @@ async function showApp() {
         fat: a.fat + Number(item.fat_g || 0)
       }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
 
-      content = `
-        <section class="card">
-          <p class="eyebrow">TODAY'S NUTRITION</p>
-          <h2>${Math.round(totals.calories)} kcal</h2>
-          <div class="macros">
-            <div><b>${totals.protein.toFixed(1)}g</b><span>蛋白質</span></div>
-            <div><b>${totals.carbs.toFixed(1)}g</b><span>碳水</span></div>
-            <div><b>${totals.fat.toFixed(1)}g</b><span>脂肪</span></div>
-          </div>
-        </section>
-        <section class="card">
-          <h3>今日目標</h3>
-          <p>持續記錄，觀察長期變化。</p>
-          <p class="muted">尚未連接 Apple Health，暫不計算總消耗及熱量赤字。</p>
-        </section>
-      `;
+      content = renderHome(totals);
     }
 
     if (currentTab === "meals") {
@@ -174,6 +276,11 @@ async function showApp() {
       content = `
         <section class="card">
           <h2>體重紀錄</h2>
+          <p>最近體重：${
+            latestWeight
+              ? Number(latestWeight.weight_kg).toFixed(1) + " kg"
+              : "尚未紀錄"
+          }</p>
           <form id="weightForm">
             <label>體重 kg
               <input name="weight_kg" type="number"
@@ -181,7 +288,7 @@ async function showApp() {
             </label>
             <label>日期
               <input name="logged_at" type="date"
-                value="${new Date().toLocaleDateString("en-CA")}" required>
+                value="${today()}" required>
             </label>
             <button type="submit">儲存體重</button>
           </form>
@@ -211,8 +318,92 @@ async function showApp() {
         </section>
       `;
     }
+
+    if (currentTab === "settings") {
+      content = `
+        <section class="card">
+          <h2>個人設定</h2>
+          <form id="profileForm">
+            <label>顯示名稱
+              <input name="display_name"
+                value="${escapeHTML(profile?.display_name || "")}"
+                placeholder="輸入名稱">
+            </label>
+            <label>身高（cm）
+              <input name="height_cm" type="number"
+                min="100" max="220" step="0.1"
+                value="${profile?.height_cm ?? ""}" required>
+            </label>
+            <label>起始體重（kg）
+              <input name="start_weight_kg" type="number"
+                min="25" max="250" step="0.1"
+                value="${profile?.start_weight_kg ?? ""}" required>
+            </label>
+            <label>長期目標體重（kg）
+              <input name="target_weight_kg" type="number"
+                min="25" max="250" step="0.1"
+                value="${profile?.target_weight_kg ?? ""}" required>
+            </label>
+            <button type="submit">儲存個人設定</button>
+          </form>
+          <p class="muted">目前體重會自動讀取最新一筆體重紀錄。</p>
+        </section>
+
+        <section class="card">
+          <h2>減重階段管理</h2>
+          <p class="muted">你可以自行新增、修改及刪除階段。</p>
+
+          <form id="stageForm">
+            <input type="hidden" name="stage_id">
+            <label>階段名稱
+              <input name="stage_name" required placeholder="例如：第一階段">
+            </label>
+            <label>目標體重（kg）
+              <input name="target_weight_kg" type="number"
+                min="25" max="250" step="0.1" required>
+            </label>
+            <label>目標日期
+              <input name="target_date" type="date" required>
+            </label>
+            <button type="submit" id="stageSubmit">新增階段</button>
+            <button type="button" id="cancelStage"
+              style="display:none;background:#eee;color:#665">
+              取消修改
+            </button>
+          </form>
+        </section>
+
+        <section class="card">
+          <h3>已設定的階段</h3>
+          ${
+            stages.length
+              ? stages.map((stage, index) => `
+                <div class="stage-row">
+                  <h3>${escapeHTML(stage.stage_name)}</h3>
+                  <p>目標：${stage.target_weight_kg} kg</p>
+                  <p>期限：${stage.target_date}</p>
+                  <button type="button" class="edit-stage"
+                    data-id="${stage.id}">修改</button>
+                  <button type="button" class="delete-stage"
+                    data-id="${stage.id}"
+                    style="background:#eee;color:#80635b">
+                    刪除
+                  </button>
+                </div>
+                ${index < stages.length - 1 ? "<hr>" : ""}
+              `).join("")
+              : "<p class='muted'>尚未新增階段目標。</p>"
+          }
+        </section>
+      `;
+    }
+
   } catch (error) {
-    content = `<section class="card">讀取失敗：${escapeHTML(error.message)}</section>`;
+    content = `
+      <section class="card">
+        讀取失敗：${escapeHTML(error.message)}
+      </section>
+    `;
   }
 
   app.innerHTML = `
@@ -227,6 +418,7 @@ async function showApp() {
       <button data-tab="meals">飲食</button>
       <button data-tab="weight">體重</button>
       <button data-tab="activity">運動</button>
+      <button data-tab="settings">設定</button>
     </nav>
   `;
 
@@ -244,7 +436,105 @@ async function showApp() {
     showLogin();
   };
 
+  const profileForm = document.querySelector("#profileForm");
+
+  if (profileForm) {
+    profileForm.onsubmit = async event => {
+      event.preventDefault();
+      const f = new FormData(profileForm);
+
+      const { error } = await supabase
+        .from("profiles")
+        .upsert({
+          id: currentUser.id,
+          display_name: f.get("display_name"),
+          height_cm: Number(f.get("height_cm")),
+          start_weight_kg: Number(f.get("start_weight_kg")),
+          target_weight_kg: Number(f.get("target_weight_kg")),
+          updated_at: new Date().toISOString()
+        }, { onConflict: "id" });
+
+      if (error) return showMessage(error.message);
+
+      showMessage("個人設定已儲存！");
+      await showApp();
+    };
+  }
+
+  const stageForm = document.querySelector("#stageForm");
+
+  if (stageForm) {
+    stageForm.onsubmit = async event => {
+      event.preventDefault();
+      const f = new FormData(stageForm);
+      const stageId = f.get("stage_id");
+
+      const payload = {
+        user_id: currentUser.id,
+        stage_name: f.get("stage_name"),
+        target_weight_kg: Number(f.get("target_weight_kg")),
+        target_date: f.get("target_date"),
+        sort_order: stageId
+          ? stages.find(s => s.id === stageId)?.sort_order || stages.length + 1
+          : stages.length + 1,
+        updated_at: new Date().toISOString()
+      };
+
+      const query = stageId
+        ? supabase.from("goal_stages").update(payload).eq("id", stageId)
+        : supabase.from("goal_stages").insert(payload);
+
+      const { error } = await query;
+
+      if (error) return showMessage(error.message);
+
+      showMessage(stageId ? "階段已更新！" : "階段已新增！");
+      await showApp();
+    };
+
+    document.querySelector("#cancelStage").onclick = () => {
+      stageForm.reset();
+      stageForm.elements.stage_id.value = "";
+      document.querySelector("#stageSubmit").textContent = "新增階段";
+      document.querySelector("#cancelStage").style.display = "none";
+    };
+
+    document.querySelectorAll(".edit-stage").forEach(button => {
+      button.onclick = () => {
+        const stage = stages.find(s => s.id === button.dataset.id);
+        if (!stage) return;
+
+        stageForm.elements.stage_id.value = stage.id;
+        stageForm.elements.stage_name.value = stage.stage_name;
+        stageForm.elements.target_weight_kg.value = stage.target_weight_kg;
+        stageForm.elements.target_date.value = stage.target_date;
+
+        document.querySelector("#stageSubmit").textContent = "儲存修改";
+        document.querySelector("#cancelStage").style.display = "block";
+
+        stageForm.scrollIntoView({ behavior: "smooth" });
+      };
+    });
+
+    document.querySelectorAll(".delete-stage").forEach(button => {
+      button.onclick = async () => {
+        if (!confirm("確定要刪除這個階段嗎？")) return;
+
+        const { error } = await supabase
+          .from("goal_stages")
+          .delete()
+          .eq("id", button.dataset.id);
+
+        if (error) return showMessage(error.message);
+
+        showMessage("階段已刪除。");
+        await showApp();
+      };
+    });
+  }
+
   const mealForm = document.querySelector("#mealForm");
+
   if (mealForm) {
     mealForm.onsubmit = async event => {
       event.preventDefault();
@@ -261,7 +551,7 @@ async function showApp() {
         .select()
         .single();
 
-      if (error) return alert(error.message);
+      if (error) return showMessage(error.message);
 
       const { error: itemError } = await supabase
         .from("meal_items")
@@ -276,15 +566,15 @@ async function showApp() {
           fat_g: Number(f.get("fat_g") || 0)
         });
 
-      if (itemError) alert(itemError.message);
-      else {
-        alert("飲食紀錄已儲存！");
-        showApp();
-      }
+      if (itemError) return showMessage(itemError.message);
+
+      showMessage("飲食紀錄已儲存！");
+      await showApp();
     };
   }
 
   const weightForm = document.querySelector("#weightForm");
+
   if (weightForm) {
     weightForm.onsubmit = async event => {
       event.preventDefault();
@@ -300,15 +590,15 @@ async function showApp() {
           ).toISOString()
         });
 
-      if (error) alert(error.message);
-      else {
-        alert("體重已儲存！");
-        showApp();
-      }
+      if (error) return showMessage(error.message);
+
+      showMessage("體重已儲存！");
+      await showApp();
     };
   }
 
   const activityForm = document.querySelector("#activityForm");
+
   if (activityForm) {
     activityForm.onsubmit = async event => {
       event.preventDefault();
@@ -321,30 +611,23 @@ async function showApp() {
           activity_type: f.get("activity_type"),
           duration_minutes: Number(f.get("duration_minutes") || 0),
           calories_burned: f.get("calories_burned")
-            ? Number(f.get("calories_burned")) : null,
+            ? Number(f.get("calories_burned)) : null,
           steps: f.get("steps") ? Number(f.get("steps")) : null,
           logged_at: new Date().toISOString()
         });
 
-      if (error) alert(error.message);
-      else {
-        alert("運動紀錄已儲存！");
-        showApp();
-      }
+      if (error) return showMessage(error.message);
+
+      showMessage("運動紀錄已儲存！");
+      await showApp();
     };
   }
-}
-
-function escapeHTML(value) {
-  return String(value).replace(/[&<>"']/g, char =>
-    ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[char])
-  );
 }
 
 async function refresh() {
   const { data } = await supabase.auth.getSession();
   currentUser = data.session?.user || null;
-  showApp();
+  await showApp();
 }
 
 supabase.auth.onAuthStateChange((_event, session) => {
