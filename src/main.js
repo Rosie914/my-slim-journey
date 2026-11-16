@@ -254,7 +254,7 @@ async function showApp() {
             </label>
             <label>食物照片
               <input id="foodPhotoInput" name="food_photo" type="file"
-                accept="image/*" capture="environment" required>
+                accept="image/*" required>
             </label>
             <button type="submit" id="analyzeFoodButton">AI 分析照片</button>
           </form>
