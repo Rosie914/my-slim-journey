@@ -677,8 +677,9 @@ async function showApp() {
           </form>
         `;
 
-        document.querySelector("#aiConfirmForm").onsubmit = async saveEvent => {
-          saveEvent.preventDefault();
+        const aiConfirmForm = photoResult.querySelector("#aiConfirmForm");
+if (!aiConfirmForm) throw new Error("無法建立營養確認表單，請重新分析照片。");
+aiConfirmForm.onsubmit = async saveEvent => {
           const saveButton = document.querySelector("#saveAiMealButton");
           saveButton.disabled = true;
           saveButton.textContent = "正在儲存……";
