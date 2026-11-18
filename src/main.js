@@ -294,6 +294,7 @@ async function showApp() {
             <button type="submit">儲存飲食</button>
           </form>
         </section>
+                ${renderMealHistory()}
       `;
     }
 
@@ -765,6 +766,9 @@ aiConfirmForm.onsubmit = async saveEvent => {
         analyzeButton.disabled = false;
       }
     };
+  }
+    if (currentTab === "meals") {
+    initMealHistory(supabase, currentUser.id, () => showApp());
   }
   const weightForm = document.querySelector("#weightForm");
 
