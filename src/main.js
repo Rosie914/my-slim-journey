@@ -168,8 +168,10 @@ function renderHome(totals) {
     totals
   );
   return `
+        ${nutritionPanel}
+
     <section class="card">
-      <p class="eyebrow">TODAY'S NUTRITION</p>
+      <p class="eyebrow">TODAY'S NUTRITION SUMMARY</p>
       <h2>${Math.round(totals.calories)} kcal</h2>
       <div class="macros">
         <div><b>${totals.protein.toFixed(1)}g</b><span>蛋白質</span></div>
