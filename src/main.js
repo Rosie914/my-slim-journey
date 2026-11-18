@@ -1,3 +1,4 @@
+import { renderNaturalMeal, initNaturalMeal } from "./natural-meal.js";
 import { renderAnalytics, initAnalytics } from "./analytics.js";
 import "./analytics.css";
 import { renderMealHistory, initMealHistory } from "./meal-history.js";
@@ -242,6 +243,7 @@ async function showApp() {
 
     if (currentTab === "meals") {
       content = `
+      ${renderNaturalMeal()}
         <section class="card">
           <h2>AI 拍照辨識</h2>
           <p class="muted">拍攝或選擇餐點照片，AI 會估算食物與營養素。請在儲存前確認或修改數值。</p>
@@ -739,7 +741,8 @@ aiConfirmForm.onsubmit = async saveEvent => {
   }
     if (currentTab === "meals") {
     initMealHistory(supabase, currentUser.id, () => showApp());
-  }
+    initNaturalMeal(supabase, currentUser.id, () => showApp());
+    }
 }
 async function refresh() {
   const { data } = await supabase.auth.getSession();
