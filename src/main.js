@@ -1,3 +1,5 @@
+import { renderAnalytics, initAnalytics } from "./analytics.js";
+import "./analytics.css";
 import { renderMealHistory, initMealHistory } from "./meal-history.js";
 import { createClient } from "@supabase/supabase-js";
 import "./style.css";
@@ -298,52 +300,9 @@ async function showApp() {
       `;
     }
 
-    if (currentTab === "weight") {
-      content = `
-        <section class="card">
-          <h2>體重紀錄</h2>
-          <p>最近體重：${
-            latestWeight
-              ? Number(latestWeight.weight_kg).toFixed(1) + " kg"
-              : "尚未紀錄"
-          }</p>
-          <form id="weightForm">
-            <label>體重 kg
-              <input name="weight_kg" type="number"
-                min="25" max="250" step="0.1" required>
-            </label>
-            <label>日期
-              <input name="logged_at" type="date"
-                value="${today()}" required>
-            </label>
-            <button type="submit">儲存體重</button>
-          </form>
-        </section>
-      `;
-    }
-
-    if (currentTab === "activity") {
-      content = `
-        <section class="card">
-          <h2>運動紀錄</h2>
-          <form id="activityForm">
-            <label>運動類型
-              <input name="activity_type" required placeholder="例如：飛輪">
-            </label>
-            <label>運動時間（分鐘）
-              <input name="duration_minutes" type="number" min="0" value="30">
-            </label>
-            <label>活動熱量 kcal（選填）
-              <input name="calories_burned" type="number" min="0">
-            </label>
-            <label>步數（選填）
-              <input name="steps" type="number" min="0">
-            </label>
-            <button type="submit">儲存運動</button>
-          </form>
-        </section>
-      `;
-    }
+    if (["weight", "activity", "reports", "coach"].includes(currentTab)) {
+  content = renderAnalytics(currentTab);
+}
 
     if (currentTab === "settings") {
       content = `
@@ -439,15 +398,26 @@ async function showApp() {
       <button id="logout" class="logout">登出</button>
     </header>
     ${content}
-    <nav>
-      <button data-tab="home">首頁</button>
-      <button data-tab="meals">飲食</button>
-      <button data-tab="weight">體重</button>
-      <button data-tab="activity">運動</button>
-      <button data-tab="settings">設定</button>
-    </nav>
+<nav>
+  <button data-tab="home">首頁</button>
+  <button data-tab="meals">飲食</button>
+  <button data-tab="weight">體重</button>
+  <button data-tab="activity">運動</button>
+  <button data-tab="reports">週報</button>
+  <button data-tab="coach">Coach</button>
+  <button data-tab="settings">設定</button>
+</nav>
   `;
-
+  if (["weight", "activity", "reports", "coach"].includes(currentTab)) {
+    initAnalytics(
+      supabase,
+      currentUser.id,
+      currentTab,
+      () => showApp()
+    ).catch(error => {
+      alert(`載入失敗：${error.message}`);
+    });
+  }
   document.querySelectorAll("[data-tab]").forEach(button => {
     button.classList.toggle("active", button.dataset.tab === currentTab);
     button.onclick = () => {
@@ -770,56 +740,6 @@ aiConfirmForm.onsubmit = async saveEvent => {
     if (currentTab === "meals") {
     initMealHistory(supabase, currentUser.id, () => showApp());
   }
-  const weightForm = document.querySelector("#weightForm");
-
-  if (weightForm) {
-    weightForm.onsubmit = async event => {
-      event.preventDefault();
-      const f = new FormData(weightForm);
-
-      const { error } = await supabase
-        .from("weight_logs")
-        .insert({
-          user_id: currentUser.id,
-          weight_kg: Number(f.get("weight_kg")),
-          logged_at: new Date(
-            f.get("logged_at") + "T12:00:00"
-          ).toISOString()
-        });
-
-      if (error) return showMessage(error.message);
-
-      showMessage("體重已儲存！");
-      await showApp();
-    };
-  }
-
-  const activityForm = document.querySelector("#activityForm");
-
-  if (activityForm) {
-    activityForm.onsubmit = async event => {
-      event.preventDefault();
-      const f = new FormData(activityForm);
-
-      const { error } = await supabase
-        .from("activity_logs")
-        .insert({
-          user_id: currentUser.id,
-          activity_type: f.get("activity_type"),
-          duration_minutes: Number(f.get("duration_minutes") || 0),
-          calories_burned: f.get("calories_burned")
-            ? Number(f.get("calories_burned")) : null,
-          steps: f.get("steps") ? Number(f.get("steps")) : null,
-          logged_at: new Date().toISOString()
-        });
-
-      if (error) return showMessage(error.message);
-
-      showMessage("運動紀錄已儲存！");
-      await showApp();
-    };
-  }
-}
 
 async function refresh() {
   const { data } = await supabase.auth.getSession();
