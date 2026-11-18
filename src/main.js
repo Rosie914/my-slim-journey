@@ -4,6 +4,7 @@ import "./analytics.css";
 import { renderMealHistory, initMealHistory } from "./meal-history.js";
 import { createClient } from "@supabase/supabase-js";
 import "./style.css";
+import { renderNutritionSummary } from "./nutrition.js";
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -160,7 +161,12 @@ function renderHome(totals) {
   const remaining = current !== null && stageTarget !== null
     ? Math.max(0, current - stageTarget)
     : null;
-
+  
+  const nutritionPanel = renderNutritionSummary(
+    profile,
+    current,
+    totals
+  );
   return `
     <section class="card">
       <p class="eyebrow">TODAY'S NUTRITION</p>
