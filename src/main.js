@@ -222,8 +222,10 @@ async function showApp() {
 
     if (currentTab === "home") {
       const meals = await getRows("meals", "eaten_at");
-      const todaysMeals = meals.filter(
-        meal => meal.eaten_at?.slice(0, 10) === today()
+            const todaysMeals = meals.filter(
+        meal =>
+          meal.source !== "planned" &&
+          meal.eaten_at?.slice(0, 10) === today()
       );
 
       let items = [];
