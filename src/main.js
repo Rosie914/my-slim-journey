@@ -740,7 +740,7 @@ aiConfirmForm.onsubmit = async saveEvent => {
     if (currentTab === "meals") {
     initMealHistory(supabase, currentUser.id, () => showApp());
   }
-
+}
 async function refresh() {
   const { data } = await supabase.auth.getSession();
   currentUser = data.session?.user || null;
