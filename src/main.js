@@ -320,29 +320,112 @@ async function showApp() {
       content = `
         <section class="card">
           <h2>個人設定</h2>
-          <form id="profileForm">
-            <label>顯示名稱
-              <input name="display_name"
-                value="${escapeHTML(profile?.display_name || "")}"
-                placeholder="輸入名稱">
-            </label>
-            <label>身高（cm）
-              <input name="height_cm" type="number"
-                min="100" max="220" step="0.1"
-                value="${profile?.height_cm ?? ""}" required>
-            </label>
-            <label>起始體重（kg）
-              <input name="start_weight_kg" type="number"
-                min="25" max="250" step="0.1"
-                value="${profile?.start_weight_kg ?? ""}" required>
-            </label>
-            <label>長期目標體重（kg）
-              <input name="target_weight_kg" type="number"
-                min="25" max="250" step="0.1"
-                value="${profile?.target_weight_kg ?? ""}" required>
-            </label>
-            <button type="submit">儲存個人設定</button>
-          </form>
+          
+<form id="profileForm">
+  <label>顯示名稱
+    <input name="display_name"
+      value="${escapeHTML(profile?.display_name || "")}"
+      placeholder="輸入名稱">
+  </label>
+
+  <label>出生日期
+    <input name="birth_date" type="date"
+      value="${profile?.birth_date ?? ""}" required>
+  </label>
+
+  <label>生理性別
+    <select name="sex" required>
+      <option value="">請選擇</option>
+      <option value="female" ${profile?.sex === "female" ? "selected" : ""}>女性</option>
+      <option value="male" ${profile?.sex === "male" ? "selected" : ""}>男性</option>
+    </select>
+  </label>
+
+  <label>身高（cm）
+    <input name="height_cm" type="number"
+      min="100" max="220" step="0.1"
+      value="${profile?.height_cm ?? ""}" required>
+  </label>
+
+  <label>起始體重（kg）
+    <input name="start_weight_kg" type="number"
+      min="25" max="250" step="0.1"
+      value="${profile?.start_weight_kg ?? ""}" required>
+  </label>
+
+  <label>長期目標體重（kg）
+    <input name="target_weight_kg" type="number"
+      min="25" max="250" step="0.1"
+      value="${profile?.target_weight_kg ?? ""}" required>
+  </label>
+
+  <label>目標體脂率（%）
+    <input name="target_body_fat_pct" type="number"
+      min="5" max="60" step="0.1"
+      value="${profile?.target_body_fat_pct ?? ""}"
+      placeholder="選填">
+  </label>
+
+  <label>活動程度
+    <select name="activity_level" required>
+      <option value="sedentary" ${profile?.activity_level === "sedentary" ? "selected" : ""}>久坐，幾乎沒有運動</option>
+      <option value="light" ${profile?.activity_level === "light" ? "selected" : ""}>輕量活動，每週約 1–3 天</option>
+      <option value="moderate" ${profile?.activity_level === "moderate" ? "selected" : ""}>中度活動，每週約 3–5 天</option>
+      <option value="active" ${profile?.activity_level === "active" ? "selected" : ""}>高度活動，每週約 6–7 天</option>
+      <option value="very_active" ${profile?.activity_level === "very_active" ? "selected" : ""}>非常高活動量</option>
+    </select>
+  </label>
+
+  <label>管理目標
+    <select name="goal_mode" required>
+      <option value="lose" ${(!profile?.goal_mode || profile?.goal_mode === "lose") ? "selected" : ""}>減脂</option>
+      <option value="maintain" ${profile?.goal_mode === "maintain" ? "selected" : ""}>維持體重</option>
+      <option value="gain" ${profile?.goal_mode === "gain" ? "selected" : ""}>增肌</option>
+    </select>
+  </label>
+
+  <label>目標期限
+    <input name="target_date" type="date"
+      value="${profile?.target_date ?? ""}">
+  </label>
+
+  <label>每週預計減重（kg）
+    <input name="weekly_change_kg" type="number"
+      min="0" max="1" step="0.05"
+      value="${profile?.weekly_change_kg ?? 0.25}">
+    <small>減脂模式使用；建議採取循序漸進的速度。</small>
+  </label>
+
+  <h3>每日營養目標（選填）</h3>
+  <p class="muted">留空時會依體重及熱量目標自動計算。</p>
+
+  <label>自訂熱量（kcal）
+    <input name="calorie_target_override" type="number"
+      min="1200" max="5000" step="1"
+      value="${profile?.calorie_target_override ?? ""}">
+  </label>
+
+  <label>蛋白質（g）
+    <input name="protein_target_g" type="number"
+      min="0" max="400" step="1"
+      value="${profile?.protein_target_g ?? ""}">
+  </label>
+
+  <label>碳水（g）
+    <input name="carbs_target_g" type="number"
+      min="0" max="600" step="1"
+      value="${profile?.carbs_target_g ?? ""}">
+  </label>
+
+  <label>脂肪（g）
+    <input name="fat_target_g" type="number"
+      min="0" max="250" step="1"
+      value="${profile?.fat_target_g ?? ""}">
+  </label>
+
+  <button type="submit">儲存個人設定</button>
+</form>
+
           <p class="muted">目前體重會自動讀取最新一筆體重紀錄。</p>
         </section>
 
@@ -451,16 +534,36 @@ async function showApp() {
       event.preventDefault();
       const f = new FormData(profileForm);
 
-      const { error } = await supabase
-        .from("profiles")
-        .upsert({
-          id: currentUser.id,
-          display_name: f.get("display_name"),
-          height_cm: Number(f.get("height_cm")),
-          start_weight_kg: Number(f.get("start_weight_kg")),
-          target_weight_kg: Number(f.get("target_weight_kg")),
-          updated_at: new Date().toISOString()
-        }, { onConflict: "id" });
+      
+const optionalNumber = name => {
+  const value = f.get(name);
+  return value === "" || value === null
+    ? null
+    : Number(value);
+};
+
+const { error } = await supabase
+  .from("profiles")
+  .upsert({
+    id: currentUser.id,
+    display_name: f.get("display_name"),
+    birth_date: f.get("birth_date") || null,
+    sex: f.get("sex"),
+    height_cm: Number(f.get("height_cm")),
+    start_weight_kg: Number(f.get("start_weight_kg")),
+    target_weight_kg: Number(f.get("target_weight_kg")),
+    target_body_fat_pct: optionalNumber("target_body_fat_pct"),
+    activity_level: f.get("activity_level"),
+    goal_mode: f.get("goal_mode"),
+    target_date: f.get("target_date") || null,
+    weekly_change_kg: optionalNumber("weekly_change_kg"),
+    calorie_target_override: optionalNumber("calorie_target_override"),
+    protein_target_g: optionalNumber("protein_target_g"),
+    carbs_target_g: optionalNumber("carbs_target_g"),
+    fat_target_g: optionalNumber("fat_target_g"),
+    updated_at: new Date().toISOString()
+  }, { onConflict: "id" });
+
 
       if (error) return showMessage(error.message);
 
