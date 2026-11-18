@@ -22,6 +22,10 @@ const GOAL_LABELS = {
 };
 
 const number = value => {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
   const result = Number(value);
   return Number.isFinite(result) ? result : null;
 };
