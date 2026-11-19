@@ -1,5 +1,6 @@
 
 import { renderAnalytics, initAnalytics } from "./analytics.js";
+import { enhanceHome, enhanceMeals, enhanceReport } from "./improvements.js";
 import "./analytics.css";
 import { createClient } from "@supabase/supabase-js";
 import { renderNutritionSummary } from "./nutrition.js";
@@ -344,6 +345,7 @@ async function showApp() {
 
   if (["weight", "activity", "reports", "coach"].includes(currentTab)) {
     initAnalytics(supabase, currentUser.id, currentTab, () => showApp())
+      .then(() => currentTab === "reports" ? enhanceReport(supabase, currentUser.id) : null)
       .catch(error => alert(`載入失敗：${error.message}`));
   }
 
@@ -473,6 +475,11 @@ async function showApp() {
 
   if (currentTab === "meals") {
     initMealSuite(supabase, currentUser.id, () => Promise.resolve());
+    enhanceMeals();
+  }
+
+  if (currentTab === "home") {
+    enhanceHome(supabase, currentUser.id, profile, latestWeight).catch(console.error);
   }}
 
 async function refresh() {
