@@ -160,6 +160,7 @@ export function renderMealSuite() {
       <p id="diaryMessage" class="diary-note" role="status" hidden></p>
       <div id="diaryCopy" hidden></div>
       <div id="diarySummary"></div>
+      <button type="button" id="diaryCopyYesterday" class="diary-link" hidden>複製前一天餐點</button>
       <div id="diaryMeals"></div>
     </section>
     <dialog id="diaryDialog" aria-labelledby="diaryDialogTitle">
@@ -267,6 +268,7 @@ export function initMealSuite(db, uid, config = {}) {
     const date = selected;
     get("diarySummaryTitle").textContent = future(date) ? "預計飲食" : "當日飲食";
     get("diarySummary").innerHTML = "";
+    get("diaryCopyYesterday").hidden = true;
     get("diaryMeals").innerHTML = '<p class="diary-note" role="status">載入餐點中…</p>';
     try {
       const rows = await mealRows(db.from("meals").select("id,meal_type,source,eaten_at,notes,photo_path,meal_items(*)")
@@ -274,6 +276,7 @@ export function initMealSuite(db, uid, config = {}) {
         .order("eaten_at").order("id"));
       if (version !== dateRequest || !diary.isConnected) return;
       meals = rows;
+      get("diaryCopyYesterday").hidden = future(date);
       get("diaryMeals").innerHTML = renderMeals(meals);
       get("diarySummary").innerHTML = renderDaySummary(meals, date);
       if (date === day() && config.goal) {
@@ -552,6 +555,40 @@ export function initMealSuite(db, uid, config = {}) {
       <button type="button" data-paste>貼到 ${visibleDate(selected)}</button>
       <button type="button" data-cancel-copy class="diary-link">取消</button></div>` : "";
   }
+
+  function copiedMeal(meal, date) {
+    return {
+      meal_type: meal.meal_type,
+      source: sourceFor(date, "manual"),
+      eaten_at: new Date(date + "T" + timeFormatter.format(new Date(meal.eaten_at)) + ":00+08:00").toISOString(),
+      notes: meal.notes,
+      items: (meal.meal_items || []).map(item => Object.fromEntries(
+        ["food_name", "quantity", "serving_weight_g", "nutrition_source", "confidence", ...keys].map(key => [key, item[key]])
+      ))
+    };
+  }
+
+  get("diaryCopyYesterday").onclick = async event => {
+    if (busy || future(selected)) return;
+    const button = event.currentTarget;
+    const date = selected;
+    const previous = shiftDay(date, -1);
+    busy = true;
+    button.disabled = true;
+    showMessage("");
+    try {
+      const rows = await mealRows(db.from("meals").select("meal_type,source,eaten_at,notes,meal_items(*)")
+        .eq("user_id", uid).gte("eaten_at", midnight(previous)).lt("eaten_at", midnight(date))
+        .order("eaten_at").order("id"));
+      if (!diary.isConnected) return;
+      const entries = rows.filter(meal => meal.source !== "planned" && meal.meal_items?.length);
+      if (!entries.length) return showMessage("前一天沒有可複製的飲食紀錄。");
+      if (!confirm(`將前一天的 ${entries.length} 筆餐點新增到 ${visibleDate(date)}？原有紀錄會保留。`)) return;
+      await save(db, entries.map(meal => copiedMeal(meal, date)));
+      refresh(`已複製 ${entries.length} 筆餐點。`);
+    } catch (error) { showMessage(error.message || "複製失敗。"); }
+    finally { busy = false; button.disabled = false; }
+  };
 
   get("diaryCopy").onclick = async event => {
     if (event.target.closest("[data-cancel-copy]") && !busy) {
