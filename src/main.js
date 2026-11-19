@@ -1,6 +1,8 @@
 
 import { renderAnalytics, initAnalytics } from "./analytics.js";
 import { enhanceHome, enhanceMeals, enhanceReport } from "./improvements.js";
+import { renderWeightInsights, renderMealInsights, renderReportInsights } from "./insights.js";
+import "./insights.css";
 import "./analytics.css";
 import { createClient } from "@supabase/supabase-js";
 import { renderNutritionSummary } from "./nutrition.js";
@@ -345,7 +347,14 @@ async function showApp() {
 
   if (["weight", "activity", "reports", "coach"].includes(currentTab)) {
     initAnalytics(supabase, currentUser.id, currentTab, () => showApp())
-      .then(() => currentTab === "reports" ? enhanceReport(supabase, currentUser.id) : null)
+      .then(async () => {
+        if (currentTab === "reports") {
+          await enhanceReport(supabase, currentUser.id);
+          await renderReportInsights(supabase, currentUser.id);
+        } else if (currentTab === "weight") {
+          await renderWeightInsights(supabase, currentUser.id, profile);
+        }
+      })
       .catch(error => alert(`載入失敗：${error.message}`));
   }
 
@@ -474,8 +483,9 @@ async function showApp() {
   }
 
   if (currentTab === "meals") {
-    initMealSuite(supabase, currentUser.id, () => Promise.resolve());
+    initMealSuite(supabase, currentUser.id, () => renderMealInsights(supabase, currentUser.id, profile, latestWeight));
     enhanceMeals();
+    renderMealInsights(supabase, currentUser.id, profile, latestWeight).catch(console.error);
   }
 
   if (currentTab === "home") {
