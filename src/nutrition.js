@@ -4,7 +4,6 @@ const LABELS={sedentary:"久坐，幾乎沒有運動",light:"輕量活動，每�
 const num=v=>v===null||v===undefined||v===""?null:Number.isFinite(Number(v))?Number(v):null;
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const DAY_MS = 86400000;
-const adultUnderweightBMI = 18.5;
 const dateFormatter = new Intl.DateTimeFormat("en-CA", {
  timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit"
 });
@@ -55,14 +54,11 @@ export function calculateNutrition(profile, currentWeight, today = day()) {
  const requiredWeekly = daysRemaining === null ? 0 : Math.max(0, desiredChange * 7 / Math.max(1, daysRemaining));
  const rateLimit = Math.min(0.5, weight * 0.0075);
  const floor = sex === "female" ? 1200 : 1500;
- const minimumWeight = adultUnderweightBMI * (height / 100) ** 2;
- const weightGuard = goalMode === "lose" && Math.min(weight, latest) <= minimumWeight;
- const stageGuard = goalMode === "lose" && targetWeight !== null && targetWeight < minimumWeight;
  const dueToday = goalMode === "lose" && daysRemaining === 0 && desiredChange > 0;
  const reached = goalMode === "lose" && active && desiredChange <= 0;
  const fastLoss = goalMode === "lose" && observedChange !== null && -observedChange > rateLimit;
  const flatOrRising = goalMode === "lose" && observedChange !== null && observedChange >= -0.1;
- const paused = weightGuard || stageGuard || dueToday || fastLoss || reached;
+ const paused = dueToday || fastLoss || reached;
  const plannedRate = goalMode === "lose" && !paused ? Math.min(requiredWeekly, rateLimit) : 0;
  // When progress is flat, use the preceding window's plan as a ceiling for the deficit.
  const earlierRate = flatOrRising && daysRemaining !== null && targetWeight !== null
@@ -71,30 +67,32 @@ export function calculateNutrition(profile, currentWeight, today = day()) {
  const deficit = Math.min(500, rate * 7700 / 7);
  const automaticTarget = Math.max(floor, Math.round(goalMode === "gain" ? tdee + 150 : tdee - deficit));
  const override = num(profile?.calorie_target_override);
- const manual = override !== null && override >= floor && (!paused || override >= tdee);
+ const manual = override !== null && override >= floor;
  const calorieTarget = manual ? Math.round(override) : automaticTarget;
  const protein = Math.round(Math.max(0, num(profile?.protein_target_g) ?? weight * 1.6));
  const fat = Math.round(Math.max(0, num(profile?.fat_target_g) ?? weight * 0.8));
  const carbs = Math.round(Math.max(0, num(profile?.carbs_target_g) ?? (calorieTarget - protein * 4 - fat * 9) / 4));
  const macroCalories = protein * 4 + carbs * 4 + fat * 9;
  const energyDifference = calorieTarget - tdee;
- const weeklyChange = Math.max(0, -energyDifference) * 7 / 7700;
+ // The activity multiplier already covers habitual movement. Only plan extra activity.
+ const plannedExtraActivity = goalMode === "lose" && active && !paused
+  ? Math.min(200, Math.max(0, Math.round(deficit + energyDifference))) : 0;
+ const plannedDeficit = Math.max(0, plannedExtraActivity - energyDifference);
+ const weeklyChange = plannedDeficit * 7 / 7700;
  const warnings = [];
- if (weightGuard || stageGuard) {
-  warnings.push("目前體重或階段目標達到成人體重過輕的篩檢界線，熱量改以維持估算。");
- } else if (fastLoss) {
+ if (!manual && fastLoss) {
   warnings.push("近兩段週平均的下降幅度高於此計畫的上限，這次改以維持熱量估算。");
- } else if (dueToday) {
+ } else if (!manual && (dueToday)) {
   warnings.push("階段期限為今天，熱量改以維持估算。");
- } else if (reached) {
+ } else if (!manual && (reached)) {
   warnings.push("已達此階段的體重目標，熱量改以維持估算。");
- } else if (goalMode === "lose" && !active) {
+ } else if (!manual && (goalMode === "lose" && !active)) {
   warnings.push("目前沒有進行中的階段，以維持熱量估算。");
- } else if (goalMode === "lose" && requiredWeekly > rateLimit + 0.02) {
+ } else if (!manual && (goalMode === "lose" && requiredWeekly > rateLimit + 0.02)) {
   warnings.push("依原期限推算的速度較快，熱量目標使用較保守的速度。");
  }
  if (rate < plannedRate && !manual) warnings.push("週平均持平或回升，本次沿用前一段的熱量差上限。");
- if (paused && override !== null && !manual) warnings.push("目前暫緩熱量赤字，因此這次採用維持估算。");
+ if (override !== null && !manual) warnings.push("自訂熱量低於下限，已採用自動估算。");
  if (!manual && deficit > 0 && tdee - deficit < floor) warnings.push("已套用 App 的最低熱量保護。");
 
  return {
@@ -103,7 +101,7 @@ export function calculateNutrition(profile, currentWeight, today = day()) {
   activityLabel: LABELS[profile?.activity_level] || LABELS.sedentary,
   targetDate: active?.target_date ?? null, daysRemaining, currentWeight: weight, targetWeight,
   targetBodyFat: num(profile?.target_body_fat_pct), stageName: active?.stage_name ?? null,
-  weeklyChange, requiredWeekly, observedChange, energyDifference, trendWeight, manual, warnings
+  weeklyChange, requiredWeekly, observedChange, energyDifference, plannedExtraActivity, plannedDeficit, trendWeight, manual, warnings
  };
 }
 
@@ -116,7 +114,7 @@ export function renderNutritionBasis(goal) {
  const pace = goal.observedChange === null ? "" :
   `<p>近兩段 7 天平均相差 ${goal.observedChange > 0 ? "+" : ""}${goal.observedChange.toFixed(2)} kg。</p>`;
  return `<p>${source} · 以${trend} ${goal.currentWeight.toFixed(2)} kg 計算。</p>
-  <p>每日熱量目標 <b>${goal.calorieTarget} kcal</b>，${energy}。</p>${pace}`;
+  <p>每日熱量目標 <b>${goal.calorieTarget} kcal</b>，${energy}。</p><p>規劃額外運動 ${goal.plannedExtraActivity} kcal，合計計畫赤字 ${goal.plannedDeficit} kcal。</p>${pace}`;
 }
 function bar(label,actual,target,unit){
  const a=Math.max(0,num(actual)??0),t=Math.max(0,num(target)??0);

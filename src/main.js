@@ -231,6 +231,39 @@ async function loadHomeWeights(userId, date) {
   return weights;
 }
 
+async function loadHomeActivityCalories(userId, date) {
+  const from = new Date(date + "T00:00:00+08:00").toISOString();
+  const to = new Date(shiftHomeDate(date, 1) + "T00:00:00+08:00").toISOString();
+  let total = null;
+  const pageSize = 500;
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabase.from("activity_logs").select("calories_burned")
+      .eq("user_id", userId).gte("logged_at", from).lt("logged_at", to)
+      .order("id").range(offset, offset + pageSize - 1);
+    if (error) throw error;
+    for (const entry of data) {
+      if (entry.calories_burned !== null) total = (total ?? 0) + Number(entry.calories_burned);
+    }
+    if (data.length < pageSize) return total;
+  }
+}
+
+function renderHomeEnergyPlan(goal, recordedActivity) {
+  const actual = recordedActivity === undefined ? "暫時無法讀取"
+    : recordedActivity === null ? "尚未記錄" : homeNumber.format(Math.round(recordedActivity)) + " kcal";
+  return `<section class="card">
+    <div class="home-row"><h2>飲食與運動安排</h2><button type="button" data-tab="activity" class="home-link">記錄運動 ›</button></div>
+    ${goal.ready ? `<dl>
+      <div><dt>${goal.manual ? "自訂每日攝取" : "估計每日攝取目標"}</dt><dd>${homeNumber.format(goal.calorieTarget)} kcal</dd></div>
+      <div><dt>日常總消耗估計</dt><dd>${homeNumber.format(goal.tdee)} kcal</dd></div>
+      <div><dt>規劃額外運動消耗</dt><dd>${homeNumber.format(goal.plannedExtraActivity)} kcal</dd></div>
+      <div><dt>計畫熱量赤字</dt><dd>${homeNumber.format(goal.plannedDeficit)} kcal</dd></div>
+    </dl>` : ""}
+    <p class="home-note">今日已記錄運動消耗 · ${actual}</p>
+    <p class="home-note">日常總消耗已含活動程度。規劃只加上超出日常的運動，已記錄的運動熱量另列。</p>
+  </section>`;
+}
+
 function homeMeter(label, percent, tone, valueText) {
   const value = Math.max(0, Math.min(100, Math.round(percent)));
   return `<div class="home-meter ${tone}" role="progressbar" aria-label="${label}"
@@ -269,7 +302,7 @@ function renderHomeNutrition(goal, totals, date) {
       <dl><div><dt>基礎代謝</dt><dd>${goal.bmr} kcal</dd></div><div><dt>每日總消耗</dt><dd>${goal.tdee} kcal</dd></div></dl>
       ${renderNutritionBasis(goal)}
       <p>${escapeHTML(goal.activityLabel)}</p>
-      ${goal.stageName ? `<p>${escapeHTML(goal.stageName)} · 熱量差換算約每週 ${goal.weeklyChange.toFixed(2)} kg</p>` : ""}
+      ${goal.stageName ? `<p>${escapeHTML(goal.stageName)} · 飲食與額外運動合計換算約每週 ${goal.weeklyChange.toFixed(2)} kg</p>` : ""}
       ${Math.abs(goal.macroCalories - goal.calorieTarget) > 5 ? `<p>營養素換算熱量為 ${goal.macroCalories} kcal，與熱量目標不同。</p>` : ""}
       ${goal.warnings.map(warning => `<p>${escapeHTML(warning)}</p>`).join("")}
     </details>` : ""}
@@ -317,7 +350,7 @@ function renderHomeTrend(weights, date) {
   return `<section class="card"><h2>最近 7 天體重</h2>${trend}</section>`;
 }
 
-function renderHome(meals, weights, date, weightTrend) {
+function renderHome(meals, weights, date, weightTrend, recordedActivity) {
   const current = Number(latestWeight?.weight_kg) || Number(profile?.start_weight_kg) || null;
   const goal = calculateNutrition({ ...profile, _stages: stages, _weightTrend: weightTrend }, current, date);
   const stage = [...stages]
@@ -346,6 +379,7 @@ function renderHome(meals, weights, date, weightTrend) {
   }).join("");
   return `${homeStyles}<main class="home-dashboard">
     ${renderHomeNutrition(goal, meals ? totals : null, date)}
+    ${renderHomeEnergyPlan(goal, recordedActivity)}
     ${renderHomeWeight(stage, current, Number(profile?.start_weight_kg))}
     ${renderHomeTrend(weights, date)}
     <section class="card">
@@ -373,12 +407,13 @@ async function showApp() {
 
     if (currentTab === "home") {
       const date = homeDate.format(new Date());
-      const [meals, weights, trend] = await Promise.allSettled([
+      const [meals, weights, trend, activity] = await Promise.allSettled([
         loadHomeMeals(currentUser.id, date),
         loadHomeWeights(currentUser.id, date),
-        loadNutritionTrend(supabase, currentUser.id, date)
+        loadNutritionTrend(supabase, currentUser.id, date),
+        loadHomeActivityCalories(currentUser.id, date)
       ]);
-      content = renderHome(meals.value ?? null, weights.value ?? null, date, trend.value);
+      content = renderHome(meals.value ?? null, weights.value ?? null, date, trend.value, activity.value);
     }
 
     if (currentTab === "meals") {
