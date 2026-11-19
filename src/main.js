@@ -5,6 +5,9 @@ import { renderMealHistory, initMealHistory } from "./meal-history.js";
 import { createClient } from "@supabase/supabase-js";
 import "./style.css";
 import { renderNutritionSummary } from "./nutrition.js";
+import { renderMealSuite, initMealSuite } from './meal-suite.js';
+import './meal-suite.css';
+
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -251,66 +254,10 @@ async function showApp() {
       content = renderHome(totals);
     }
 
-    if (currentTab === "meals") {
-      content = `
-      ${renderNaturalMeal()}
-        <section class="card">
-          <h2>AI 拍照辨識</h2>
-          <p class="muted">拍攝或選擇餐點照片，AI 會估算食物與營養素。請在儲存前確認或修改數值。</p>
-          <form id="foodPhotoForm">
-            <label>餐別
-              <select name="photo_meal_type">
-                <option value="breakfast">早餐</option>
-                <option value="lunch">午餐</option>
-                <option value="dinner">晚餐</option>
-                <option value="snack">點心</option>
-              </select>
-            </label>
-            <label>食物照片
-              <input id="foodPhotoInput" name="food_photo" type="file"
-                accept="image/*" required>
-            </label>
-            <button type="submit" id="analyzeFoodButton">AI 分析照片</button>
-          </form>
-          <p id="aiPhotoStatus" class="muted"></p>
-          <div id="aiPhotoResult"></div>
-        </section>
-
-        <section class="card">
-          <h2>手動新增飲食</h2>
-          <form id="mealForm">
-            <label>餐別
-              <select name="meal_type">
-                <option value="breakfast">早餐</option>
-                <option value="lunch">午餐</option>
-                <option value="dinner">晚餐</option>
-                <option value="snack">點心</option>
-              </select>
-            </label>
-            <label>食物名稱
-              <input name="food_name" required placeholder="例如：雞胸肉">
-            </label>
-            <label>份量
-              <input name="quantity" placeholder="例如：100g">
-            </label>
-            <label>熱量 kcal
-              <input name="calories" type="number" min="0" value="0">
-            </label>
-            <label>蛋白質 g
-              <input name="protein_g" type="number" min="0" step="0.1" value="0">
-            </label>
-            <label>碳水 g
-              <input name="carbs_g" type="number" min="0" step="0.1" value="0">
-            </label>
-            <label>脂肪 g
-              <input name="fat_g" type="number" min="0" step="0.1" value="0">
-            </label>
-            <button type="submit">儲存飲食</button>
-          </form>
-        </section>
-                ${renderMealHistory()}
-      `;
-    }
+    
+if (currentTab === "meals") {
+  content = renderMealSuite();
+}
 
     if (["weight", "activity", "reports", "coach"].includes(currentTab)) {
   content = renderAnalytics(currentTab);
@@ -642,220 +589,10 @@ const { error } = await supabase
       };
     });
   }
-
-  const mealForm = document.querySelector("#mealForm");
-
-  if (mealForm) {
-    mealForm.onsubmit = async event => {
-      event.preventDefault();
-      const f = new FormData(mealForm);
-
-      const { data, error } = await supabase
-        .from("meals")
-        .insert({
-          user_id: currentUser.id,
-          meal_type: f.get("meal_type"),
-          source: "manual",
-          notes: f.get("food_name")
-        })
-        .select()
-        .single();
-
-      if (error) return showMessage(error.message);
-
-      const { error: itemError } = await supabase
-        .from("meal_items")
-        .insert({
-          meal_id: data.id,
-          user_id: currentUser.id,
-          food_name: f.get("food_name"),
-          quantity: f.get("quantity"),
-          calories: Number(f.get("calories") || 0),
-          protein_g: Number(f.get("protein_g") || 0),
-          carbs_g: Number(f.get("carbs_g") || 0),
-          fat_g: Number(f.get("fat_g") || 0)
-        });
-
-      if (itemError) return showMessage(itemError.message);
-
-      showMessage("飲食紀錄已儲存！");
-      await showApp();
-    };
+  
+  if (currentTab === "meals") {
+    initMealSuite(supabase, currentUser.id, () => Promise.resolve());
   }
-
-  const foodPhotoForm = document.querySelector("#foodPhotoForm");
-
-  if (foodPhotoForm) {
-    const photoStatus = document.querySelector("#aiPhotoStatus");
-    const photoResult = document.querySelector("#aiPhotoResult");
-    const analyzeButton = document.querySelector("#analyzeFoodButton");
-
-    foodPhotoForm.onsubmit = async event => {
-      event.preventDefault();
-      const file = document.querySelector("#foodPhotoInput").files?.[0];
-
-      if (!file) return showMessage("請先選擇食物照片。");
-      if (!file.type.startsWith("image/")) return showMessage("請選擇圖片檔案。");
-      if (file.size > 7 * 1024 * 1024) return showMessage("照片太大，請選擇 7MB 以下的圖片。");
-
-      analyzeButton.disabled = true;
-      photoStatus.textContent = "AI 正在辨識照片，請稍候……";
-      photoResult.innerHTML = "";
-
-      try {
-        const dataUrl = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result);
-          reader.onerror = () => reject(new Error("讀取照片失敗。"));
-          reader.readAsDataURL(file);
-        });
-
-        const imageBase64 = String(dataUrl).split(",")[1];
-        const mimeType = file.type || "image/jpeg";
-
-        const { data, error } = await supabase.functions.invoke("analyze-food", {
-          body: { imageBase64, mimeType }
-        });
-
-        if (error) throw error;
-        if (!data?.success || !Array.isArray(data.analysis?.items)) {
-          throw new Error(data?.error || "AI 回傳格式不正確。");
-        }
-        if (!data.analysis.items.length) {
-          throw new Error(data.analysis.note || "無法辨識照片中的食物，請換一張清楚的照片。");
-        }
-
-        pendingFoodPhoto = file;
-        pendingFoodMimeType = mimeType;
-        pendingFoodAnalysis = data.analysis;
-
-        const confidence = { high: "高", medium: "中", low: "低" }[data.analysis.confidence] || "未提供";
-        photoStatus.textContent = `辨識完成｜信心程度：${confidence}。營養數值為估算，請確認或修改後再儲存。`;
-
-        photoResult.innerHTML = `
-          <form id="aiConfirmForm">
-            ${data.analysis.items.map((item, index) => `
-              <div style="border-top:1px solid #eee;padding-top:12px;margin-top:12px">
-                <h3>食物 ${index + 1}</h3>
-                <label>食物名稱
-                  <input name="food_name_${index}" required value="${escapeHTML(item.food_name || "")}">
-                </label>
-                <label>估計份量
-                  <input name="quantity_${index}" value="${escapeHTML(item.quantity || "")}">
-                </label>
-                <label>熱量 kcal
-                  <input name="calories_${index}" type="number" min="0" step="1" required value="${Number(item.calories) || 0}">
-                </label>
-                <label>蛋白質 g
-                  <input name="protein_${index}" type="number" min="0" step="0.1" required value="${Number(item.protein_g) || 0}">
-                </label>
-                <label>碳水 g
-                  <input name="carbs_${index}" type="number" min="0" step="0.1" required value="${Number(item.carbs_g) || 0}">
-                </label>
-                <label>脂肪 g
-                  <input name="fat_${index}" type="number" min="0" step="0.1" required value="${Number(item.fat_g) || 0}">
-                </label>
-              </div>
-            `).join("")}
-            <p class="muted">${escapeHTML(data.analysis.note || "照片辨識僅供估算，實際營養可能不同。")}</p>
-            <button type="submit" id="saveAiMealButton">確認並儲存飲食</button>
-            <button type="button" id="cancelAiMealButton" style="background:#eee;color:#665">取消</button>
-          </form>
-        `;
-
-        const aiConfirmForm = photoResult.querySelector("#aiConfirmForm");
-if (!aiConfirmForm) throw new Error("無法建立營養確認表單，請重新分析照片。");
-aiConfirmForm.onsubmit = async saveEvent => {
-          const saveButton = document.querySelector("#saveAiMealButton");
-          saveButton.disabled = true;
-          saveButton.textContent = "正在儲存……";
-
-          try {
-            const formData = new FormData(saveEvent.target);
-            const itemsToSave = pendingFoodAnalysis.items.map((item, index) => ({
-              food_name: String(formData.get(`food_name_${index}`) || "").trim(),
-              quantity: String(formData.get(`quantity_${index}`) || "").trim(),
-              calories: Number(formData.get(`calories_${index}`)),
-              protein_g: Number(formData.get(`protein_${index}`)),
-              carbs_g: Number(formData.get(`carbs_${index}`)),
-              fat_g: Number(formData.get(`fat_${index}`))
-            }));
-
-            if (itemsToSave.some(item =>
-              !item.food_name ||
-              ![item.calories, item.protein_g, item.carbs_g, item.fat_g].every(
-                value => Number.isFinite(value) && value >= 0
-              )
-            )) throw new Error("請確認食物名稱及營養數值正確且不小於 0。");
-
-            const extension = {
-              "image/jpeg": "jpg", "image/png": "png",
-              "image/webp": "webp", "image/gif": "gif"
-            }[pendingFoodMimeType] || "jpg";
-            const photoPath = `${currentUser.id}/${crypto.randomUUID()}.${extension}`;
-
-            const { error: uploadError } = await supabase.storage
-              .from("meal-photos")
-              .upload(photoPath, pendingFoodPhoto, {
-                contentType: pendingFoodMimeType,
-                upsert: false
-              });
-            if (uploadError) throw uploadError;
-
-            const mealType = new FormData(foodPhotoForm).get("photo_meal_type");
-            const { data: meal, error: mealError } = await supabase
-              .from("meals")
-              .insert({
-                user_id: currentUser.id,
-                meal_type: mealType,
-                source: "ai_photo",
-                notes: pendingFoodAnalysis.note || "AI 照片辨識估算",
-                photo_path: photoPath
-              })
-              .select()
-              .single();
-            if (mealError) throw mealError;
-
-            const { error: itemsError } = await supabase
-              .from("meal_items")
-              .insert(itemsToSave.map(item => ({
-                meal_id: meal.id,
-                user_id: currentUser.id,
-                ...item
-              })));
-            if (itemsError) throw itemsError;
-
-            pendingFoodPhoto = null;
-            pendingFoodAnalysis = null;
-            showMessage("AI 飲食辨識結果已確認並儲存！");
-            await showApp();
-          } catch (saveError) {
-            saveButton.disabled = false;
-            saveButton.textContent = "確認並儲存飲食";
-            showMessage(`儲存失敗：${saveError.message}`);
-          }
-        };
-
-        document.querySelector("#cancelAiMealButton").onclick = () => {
-          pendingFoodPhoto = null;
-          pendingFoodAnalysis = null;
-          photoResult.innerHTML = "";
-          photoStatus.textContent = "已取消，尚未儲存飲食紀錄。";
-          foodPhotoForm.reset();
-        };
-      } catch (error) {
-        console.error("AI food analysis error:", error);
-        photoStatus.textContent = "";
-        showMessage(`AI 辨識失敗：${error.message || "請稍後再試。"}`);
-      } finally {
-        analyzeButton.disabled = false;
-      }
-    };
-  }
-    if (currentTab === "meals") {
-    initMealHistory(supabase, currentUser.id, () => showApp());
-    initNaturalMeal(supabase, currentUser.id, () => showApp());
-    }
 }
 async function refresh() {
   const { data } = await supabase.auth.getSession();
