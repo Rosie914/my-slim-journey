@@ -26,6 +26,20 @@ function catalogPortion(food, grams) {
   return item;
 }
 
+function splitRecipe(items, total, eaten) {
+  if (![total, eaten].every(n => Number.isFinite(n) && n > 0) || eaten > total) {
+    throw Error("請輸入大於零的份數，食用份數不能超過總份數。");
+  }
+  return items.map(item => {
+    const part = { ...item };
+    for (const field of ["serving_weight_g", ...keys]) {
+      if (item[field] != null) part[field] = Math.round(item[field] * (eaten / total) * 100) / 100;
+    }
+    part.quantity = part.serving_weight_g + " g";
+    return part;
+  });
+}
+
 function itemForm(item = {}, index = 0, chooseType = false) {
   const source = item.nutrition_source ? sourceLabels[item.nutrition_source] : null;
   return `<div class="ms-item" data-original-index="${index}">
@@ -404,11 +418,17 @@ export function initMealSuite(db, uid, config = {}) {
     const basket = body.querySelector("[data-basket]");
     const portions = [];
     function drawBasket() {
+      const total = basket.querySelector("[data-servings]")?.value ?? "1";
+      const eaten = basket.querySelector("[data-eaten]")?.value ?? "1";
+      const expanded = basket.querySelector("details")?.open;
       basket.hidden = portions.length === 0;
       basket.innerHTML = `<h3>這一餐的食材</h3>${portions.map((item, i) =>
         `<div class="diary-entry"><span>${esc(item.food_name)} · ${esc(item.quantity)}</span>
         <button type="button" class="diary-link" aria-label="移除 ${esc(item.food_name)}" data-remove="${i}">移除</button></div>`
-      ).join("")}<button type="button" data-review>確認 ${portions.length} 項食材與餐別</button>`;
+      ).join("")}<details ${expanded ? "open" : ""}><summary>自煮分裝（等份）</summary>
+        <label>整鍋共幾份<input data-servings type="number" step="any" min="0.01" value="${esc(total)}"></label>
+        <label>這餐吃幾份<input data-eaten type="number" step="any" min="0.01" value="${esc(eaten)}"></label>
+      </details><p data-split-status role="status"></p><button type="button" data-review>確認 ${portions.length} 項食材與餐別</button>`;
     }
     basket.onclick = event => {
       const remove = event.target.closest("[data-remove]");
@@ -416,7 +436,14 @@ export function initMealSuite(db, uid, config = {}) {
         portions.splice(Number(remove.dataset.remove), 1);
         drawBasket();
       } else if (event.target.closest("[data-review]") && portions.length) {
-        openManual(type, portions.slice());
+        try {
+          const total = Number(basket.querySelector("[data-servings]").value);
+          const eaten = Number(basket.querySelector("[data-eaten]").value);
+          openManual(type, splitRecipe(portions, total, eaten));
+        } catch (error) {
+          basket.querySelector("details").open = true;
+          basket.querySelector("[data-split-status]").textContent = error.message;
+        }
       }
     };
     const aliases = { 雞蛋:"egg", 蛋:"egg", 雞腿:"chicken thigh", 雞胸:"chicken breast", 白飯:"white rice cooked", 地瓜:"sweet potato", 豆腐:"tofu", 牛奶:"milk", 香蕉:"banana", 花椰菜:"broccoli", 鮭魚:"salmon", 燕麥:"oats", 吐司:"bread", 杏仁:"almonds" };
@@ -435,7 +462,7 @@ export function initMealSuite(db, uid, config = {}) {
         if (!results.isConnected || request !== revision) return;
         if (!foods.length) { results.textContent = "查無結果，可改用英文名稱搜尋。"; return; }
         results.innerHTML = `<label>搜尋結果<select data-food>${foods.map((food, i) => `<option value="${i}">${esc(food.description)}</option>`).join("")}</select></label>
-          <form><label>實際食用重量（g）<input name="grams" type="number" value="100" min="0.1" step="any" required></label><button>加入這一餐</button></form>`;
+          <form><label>食材重量（g，分裝時填整鍋用量）<input name="grams" type="number" value="100" min="0.1" step="any" required></label><button>加入這一餐</button></form>`;
         results.querySelector("form").onsubmit = e => {
           e.preventDefault();
           const food = foods[Number(results.querySelector("select").value)];
