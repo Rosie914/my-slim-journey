@@ -148,9 +148,15 @@ function showLogin() {
 }
 
 function renderHome(totals) {
-  const current = latestWeight
-    ? Number(latestWeight.weight_kg)
-    : null;
+  // Use the latest recorded weight, or the saved starting weight if no log exists.
+  const recordedWeight = Number(latestWeight?.weight_kg);
+  const startingWeight = Number(profile?.start_weight_kg);
+  const current = Number.isFinite(recordedWeight) && recordedWeight > 0
+    ? recordedWeight
+    : Number.isFinite(startingWeight) && startingWeight > 0
+      ? startingWeight
+      : null;
+  const usingStartingWeight = !(Number.isFinite(recordedWeight) && recordedWeight > 0);
 
   const target = profile?.target_weight_kg
     ? Number(profile.target_weight_kg)
@@ -185,6 +191,7 @@ function renderHome(totals) {
       <p class="eyebrow">MY WEIGHT JOURNEY</p>
       <h3>目前體重</h3>
       <h2>${current !== null ? current.toFixed(1) + " kg" : "尚未紀錄"}</h2>
+      ${usingStartingWeight && current !== null ? '<p class="muted">目前使用個人設定中的起始體重估算；新增體重紀錄後將自動更新。</p>' : ''}
       <p>長期目標：${target !== null ? target + " kg" : "尚未設定"}</p>
       ${
         activeStage
@@ -494,8 +501,13 @@ async function showApp() {
   }
 
   if (currentTab === "home") {
-    enhanceHome(supabase, currentUser.id, profile, latestWeight)
-      .then(() => renderDailyBudget(supabase, currentUser.id, profile, latestWeight))
+    const effectiveWeight = latestWeight?.weight_kg != null && Number(latestWeight.weight_kg) > 0
+      ? latestWeight
+      : profile?.start_weight_kg != null && Number(profile.start_weight_kg) > 0
+        ? { weight_kg: Number(profile.start_weight_kg), logged_at: null }
+        : null;
+    enhanceHome(supabase, currentUser.id, profile, effectiveWeight)
+      .then(() => renderDailyBudget(supabase, currentUser.id, profile, effectiveWeight))
       .catch(console.error);
   }}
 
