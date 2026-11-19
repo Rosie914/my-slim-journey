@@ -331,7 +331,7 @@ export function initMealSuite(db, uid, config = {}) {
   }
 
   function openView(view, markup, date = selected) {
-    get("diaryDialogTitle").textContent = view === "history" ? "搜尋吃過的食物" : methodNames[view];
+    get("diaryDialogTitle").textContent = view === "history" ? "搜尋吃過的食物" : view === "copyReview" ? "確認複製餐點" : methodNames[view];
     get("diaryDialogDate").textContent = visibleDate(date) + (future(date) ? " · 預計飲食" : "");
     body.innerHTML = markup;
     dialog.scrollTop = 0;
@@ -409,7 +409,14 @@ export function initMealSuite(db, uid, config = {}) {
           seen.add(signature);
           return true;
         }).slice(0, 12);
-        results.innerHTML = matches.length ? matches.map((item, index) => `<button type="button" class="diary-entry" data-history="${index}"><span>${esc(item.food_name)} <small>${esc(item.quantity || "")}</small></span><span>${item.calories == null ? "未記錄熱量" : esc(item.calories) + " kcal"}</span></button>`).join("") : "最近 100 筆餐點中沒有符合的食物。";
+        results.innerHTML = matches.length ? matches.map((item, index) => {
+          const serving = [item.quantity, item.serving_weight_g == null ? "" : item.serving_weight_g + " g"].filter(Boolean).join(" · ");
+          const protein = item.protein_g == null ? "" : "蛋白質 " + item.protein_g + " g";
+          return `<button type="button" class="diary-entry" data-history="${index}">
+            <span>${esc(item.food_name)} <small>${esc(serving || "未記錄份量")}</small></span>
+            <span>${item.calories == null ? "未記錄熱量" : esc(item.calories) + " kcal"} <small>${esc(protein)}</small></span>
+          </button>`;
+        }).join("") : "最近 100 筆餐點中沒有符合的食物。";
         results.onclick = event => {
           const index = event.target.closest("[data-history]")?.dataset.history;
           if (index != null) openManual(type, [matches[Number(index)]]);
@@ -611,6 +618,24 @@ export function initMealSuite(db, uid, config = {}) {
     };
   }
 
+  function reviewCopy(entries, date) {
+    openView("copyReview", `<form>
+      <p>將新增 ${entries.length} 筆餐點到 ${visibleDate(date)}，保留當日原有紀錄。</p>
+      <ul>${entries.map(meal => {
+        const from = dateFormatter.format(new Date(meal.eaten_at));
+        const time = timeFormatter.format(new Date(meal.eaten_at));
+        const foods = meal.meal_items.map(item => item.food_name).filter(Boolean).join("、");
+        return `<li><b>${esc(from)} ${esc(time)} · ${esc(types[meal.meal_type] || types.other)}</b><br>${esc(foods)}</li>`;
+      }).join("")}</ul>
+      <button type="submit">確認新增</button><p data-status role="status"></p>
+    </form>`, date);
+    bindForm(async () => {
+      await save(db, entries.map(meal => copiedMeal(meal, date)));
+      dialog.close();
+      refresh(`已複製 ${entries.length} 筆餐點。`);
+    });
+  }
+
   get("diaryCopyYesterday").onclick = async event => {
     if (busy || future(selected)) return;
     const button = event.currentTarget;
@@ -626,9 +651,7 @@ export function initMealSuite(db, uid, config = {}) {
       if (!diary.isConnected) return;
       const entries = rows.filter(meal => meal.source !== "planned" && meal.meal_items?.length);
       if (!entries.length) return showMessage("前一天沒有可複製的飲食紀錄。");
-      if (!confirm(`將前一天的 ${entries.length} 筆餐點新增到 ${visibleDate(date)}？原有紀錄會保留。`)) return;
-      await save(db, entries.map(meal => copiedMeal(meal, date)));
-      refresh(`已複製 ${entries.length} 筆餐點。`);
+      reviewCopy(entries, date);
     } catch (error) { showMessage(error.message || "複製失敗。"); }
     finally { busy = false; button.disabled = false; }
   };
@@ -646,11 +669,7 @@ export function initMealSuite(db, uid, config = {}) {
       const [meal] = await recentMeals(dayEnd < now ? dayEnd : now, 1);
       if (!diary.isConnected) return;
       if (!meal) return showMessage("沒有可複製的餐點紀錄。");
-      const label = types[meal.meal_type] || types.other;
-      const from = visibleDate(dateFormatter.format(new Date(meal.eaten_at)));
-      if (!confirm(`將 ${from}的${label}複製到 ${visibleDate(date)}？原有紀錄會保留。`)) return;
-      await save(db, [copiedMeal(meal, date)]);
-      refresh("已複製最近一餐。");
+      reviewCopy([meal], date);
     } catch (error) { showMessage(error.message || "複製失敗。"); }
     finally { busy = false; button.disabled = false; }
   };
