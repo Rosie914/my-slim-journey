@@ -3,6 +3,8 @@ import { renderAnalytics, initAnalytics } from "./analytics.js";
 import { enhanceHome, enhanceMeals, enhanceReport } from "./improvements.js";
 import { renderWeightInsights, renderMealInsights, renderReportInsights } from "./insights.js";
 import "./insights.css";
+import "./journey-next.css";
+import { renderDailyBudget, renderWeightForecast, renderCoachGuidance } from "./journey-next.js";
 import "./analytics.css";
 import { createClient } from "@supabase/supabase-js";
 import { renderNutritionSummary } from "./nutrition.js";
@@ -351,8 +353,11 @@ async function showApp() {
         if (currentTab === "reports") {
           await enhanceReport(supabase, currentUser.id);
           await renderReportInsights(supabase, currentUser.id);
+        } else if (currentTab === "coach") {
+          await renderCoachGuidance(supabase, currentUser.id, profile, latestWeight);
         } else if (currentTab === "weight") {
           await renderWeightInsights(supabase, currentUser.id, profile);
+          await renderWeightForecast(supabase, currentUser.id, profile);
         }
       })
       .catch(error => alert(`載入失敗：${error.message}`));
@@ -489,7 +494,9 @@ async function showApp() {
   }
 
   if (currentTab === "home") {
-    enhanceHome(supabase, currentUser.id, profile, latestWeight).catch(console.error);
+    enhanceHome(supabase, currentUser.id, profile, latestWeight)
+      .then(() => renderDailyBudget(supabase, currentUser.id, profile, latestWeight))
+      .catch(console.error);
   }}
 
 async function refresh() {
