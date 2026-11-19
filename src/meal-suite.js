@@ -147,7 +147,12 @@ export function renderMealSuite() {
           <button type="submit">查看月份</button>
         </form>
       </details>
-      <div class="diary-calendar-footer"><span id="diarySelected" aria-live="polite"></span><button type="button" id="diaryToday" class="diary-link">回到今天</button></div>
+      <div class="diary-calendar-footer">
+        <button type="button" id="diaryDayBack" class="diary-icon" aria-label="前一天">‹</button>
+        <span id="diarySelected" aria-live="polite"></span>
+        <button type="button" id="diaryDayForward" class="diary-icon" aria-label="後一天">›</button>
+        <button type="button" id="diaryToday" class="diary-link">回到今天</button>
+      </div>
       <p id="diaryLegend" class="diary-note">● 已記錄　<span>◇ 預計餐點</span></p>
     </section>
     <section class="card diary-overview">
@@ -300,6 +305,7 @@ export function initMealSuite(db, uid, config = {}) {
   }
 
   function moveMonth(offset) {
+    if (busy) return;
     month = shiftMonth(month, offset);
     markers = new Map();
     calendarOpen = true;
@@ -600,6 +606,8 @@ export function initMealSuite(db, uid, config = {}) {
   get("diaryPrevious").onclick = () => moveMonth(-1);
   get("diaryNext").onclick = () => moveMonth(1);
   get("diaryToday").onclick = () => selectDate(day());
+  get("diaryDayBack").onclick = () => selectDate(shiftDay(selected, -1));
+  get("diaryDayForward").onclick = () => selectDate(shiftDay(selected, 1));
   const jump = get("diaryJump");
   const jumpForm = get("diaryJumpForm");
   jump.ontoggle = () => {

@@ -20,6 +20,7 @@ const app = document.querySelector("#app");
 
 let currentUser = null;
 let settingsReturnTab = "home";
+let passwordRecovery = false;
 const appTabs = ["home", "meals", "activity", "weight", "reports", "coach", "settings"];
 const savedTab = localStorage.getItem("msj-current-tab");
 let currentTab = appTabs.includes(savedTab) ? savedTab : "home";
@@ -502,7 +503,7 @@ function renderAppShell(content) {
       <div class="account-avatar">${avatarUrl ? `<img src="${escapeHTML(avatarUrl)}" alt="">` : escapeHTML(initial)}</div>
       <div><strong>${escapeHTML(profile?.display_name || currentUser.user_metadata?.full_name || "我的帳號")}</strong><p>${escapeHTML(currentUser.email || "")}</p></div>
       </div><p class="account-provider">登入方式：${escapeHTML(currentUser.app_metadata?.provider === "google" ? "Google" : currentUser.app_metadata?.provider === "apple" ? "Apple" : "Email")}</p>
-      <details class="account-security"><summary>帳號安全</summary>
+      <details class="account-security"${passwordRecovery ? " open" : ""}><summary>帳號安全</summary>
         <form id="passwordForm"><label>設定新密碼<input name="password" type="password" autocomplete="new-password" minlength="6" placeholder="至少 6 個字元" required></label><button type="submit">更新密碼</button></form>
       </details>
       <button id="logout" type="button" class="account-logout">登出</button></section>` : ""}
@@ -687,6 +688,7 @@ async function showApp() {
     button.disabled = false;
     button.textContent = "更新密碼";
     if (error) return showMessage(`更新失敗：${error.message}`);
+    passwordRecovery = false;
     passwordForm.reset();
     showMessage("密碼已更新。");
   };
@@ -828,6 +830,7 @@ async function refresh() {
 supabase.auth.onAuthStateChange((event, session) => {
   const nextUser = session?.user || null;
   if (event === "PASSWORD_RECOVERY") {
+    passwordRecovery = true;
     currentTab = "settings";
     localStorage.setItem("msj-current-tab", "settings");
   }
