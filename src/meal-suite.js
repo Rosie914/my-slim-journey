@@ -620,19 +620,24 @@ export function initMealSuite(db, uid, config = {}) {
 
   function reviewCopy(entries, date) {
     openView("copyReview", `<form>
-      <p>將新增 ${entries.length} 筆餐點到 ${visibleDate(date)}，保留當日原有紀錄。</p>
-      <ul>${entries.map(meal => {
+      <p>勾選要新增到 ${visibleDate(date)} 的餐點，原有紀錄會保留。</p>
+      <ul>${entries.map((meal, index) => {
         const from = dateFormatter.format(new Date(meal.eaten_at));
         const time = timeFormatter.format(new Date(meal.eaten_at));
         const foods = meal.meal_items.map(item => item.food_name).filter(Boolean).join("、");
-        return `<li><b>${esc(from)} ${esc(time)} · ${esc(types[meal.meal_type] || types.other)}</b><br>${esc(foods)}</li>`;
+        return `<li><label style="display:flex;align-items:flex-start;gap:10px">
+          <input type="checkbox" name="copyMeal" value="${index}" checked style="width:auto;margin:3px 0 0">
+          <span><b>${esc(from)} ${esc(time)} · ${esc(types[meal.meal_type] || types.other)}</b><br>${esc(foods)}</span>
+        </label></li>`;
       }).join("")}</ul>
       <button type="submit">確認新增</button><p data-status role="status"></p>
     </form>`, date);
-    bindForm(async () => {
-      await save(db, entries.map(meal => copiedMeal(meal, date)));
+    bindForm(async data => {
+      const checked = data.getAll("copyMeal").map(index => entries[Number(index)]).filter(Boolean);
+      if (!checked.length) return formStatus("請至少勾選一筆餐點。");
+      await save(db, checked.map(meal => copiedMeal(meal, date)));
       dialog.close();
-      refresh(`已複製 ${entries.length} 筆餐點。`);
+      refresh(`已複製 ${checked.length} 筆餐點。`);
     });
   }
 
