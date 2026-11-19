@@ -18,7 +18,6 @@ function delta(now, previous, unit = '', digits = 1) {
  return `${change > 0 ? '+' : ''}${fmt(change, digits)}${unit}`;
 }
 function card(title,html){return `<section class="card insight-card"><h3>${esc(title)}</h3>${html}</section>`}
-function bars(data,unit='kcal'){const max=Math.max(1,...data.map(x=>x.value));return `<div class="insight-bars">${data.map(x=>`<div class="insight-bar-row"><span>${esc(x.label)}</span><div class="insight-track"><div class="insight-fill" style="width:${Math.min(100,Math.max(0,x.value/max*100))}%"></div></div><b>${Math.round(x.value)} ${unit}</b></div>`).join('')}</div>`}
 function insertAfter(anchor,html,id){document.getElementById(id)?.remove();const div=document.createElement('div');div.id=id;div.innerHTML=html;anchor?.insertAdjacentElement('afterend',div)}
 function weeklyWeight(logs) {
  const grouped = new Map();
@@ -118,16 +117,6 @@ export async function renderWeightInsights(db, uid, profile) {
  anchor.closest('section').before($('insightWeight'));
  $('anWeightWeeks').onchange = event => { $(chartId).innerHTML = weightChart(weeks.slice(-Number(event.currentTarget.value))); };
 }
-export async function renderMealInsights(db,uid,profile,latestWeight){
- const anchor=$('msManualForm');if(!anchor)return;
- const [from,to]=bounds(dateTW());const meals=actual(await all(db.from('meals').select('id,meal_type,source,eaten_at,meal_items(calories,protein_g,carbs_g,fat_g)').eq('user_id',uid).gte('eaten_at',from).lt('eaten_at',to).order('id')));
- if(!$('msManualForm'))return;
- const total=sumItems(meals),types={breakfast:'早餐',lunch:'午餐',dinner:'晚餐',snack:'點心',other:'其他'};
- const groups=new Map();for(const m of meals){const k=m.meal_type||'other';groups.set(k,(groups.get(k)||0)+sumItems([m]).calories)}
- const goal=calculateNutrition(profile,latestWeight?.weight_kg),pct=goal.ready&&goal.protein?Math.round(total.protein/goal.protein*100):null;
- const breakdown=[...groups].map(([k,v])=>({label:types[k]||k,value:v}));
- insertAfter(anchor,card('今日飲食快速分析',`<div class="insight-summary"><div><b>${Math.round(total.calories)}</b><small>已記錄 kcal</small></div><div><b>${fmt(total.protein)}</b><small>蛋白質 g</small></div><div><b>${pct==null?'—':pct+'%'}</b><small>蛋白質目標達成</small></div></div>${breakdown.length?bars(breakdown):'<p class="muted">今天尚無實際飲食紀錄。</p>'}<p class="muted">以已記錄的實際飲食計算，不含預計餐點；未記錄的食物不會自動補入。</p>`),'insightMeal');
-}
 function activityTotal(logs) {
  const stepLogs = logs.filter(log => log.steps != null);
  return {
@@ -144,12 +133,16 @@ function activityDays(logs, week) {
  });
 }
 
-function dayBars(days, measure) {
+function dayBars(days, measure, { target = null, unit = '分' } = {}) {
  const max = Math.max(1, ...days.map(day => day[measure] ?? 0));
+ const scale = target > 0 ? Math.max(target, ...days.map(day => day[measure] ?? 0)) : max;
  return `<div class="insight-bars">${days.map(day => {
-  const value = day[measure], width = value == null ? 0 : Math.min(100, Math.max(0, value / max * 100));
-  const text = value == null ? '—' : `${Math.round(value)} ${measure === 'minutes' ? '分' : 'kcal'}`;
-  return `<div class="insight-bar-row"><span>${shortDate(day.day)}</span><div class="insight-track" aria-hidden="true"><div class="insight-fill" style="width:${width}%"></div></div><b>${text}</b></div>`;
+  const value = day[measure], width = value == null ? 0 : Math.min(100, Math.max(0, value / scale * 100));
+  const over = value != null && target > 0 && value > target;
+  const state = measure === 'calories' ? day.calorieState : measure === 'burnedCalories' ? day.burnState : null;
+  const text = value == null ? (state === 'incomplete' ? '資料不完整' : '未記錄') : `${Math.round(value)} ${unit}`;
+  const mark = target > 0 ? target / scale * 100 : null;
+  return `<div class="insight-bar-row${over ? ' is-over-target' : ''}"><span>${shortDate(day.day)}</span><div class="insight-track" aria-hidden="true"><div class="insight-fill" style="width:${width}%"></div>${mark !== null ? `<i class="insight-target-mark" style="left:${mark}%"></i>` : ''}</div><b>${text}${over ? '<small>超標</small>' : ''}</b></div>`;
  }).join('')}</div>`;
 }
 
@@ -184,32 +177,52 @@ function reportStats(week, meals, weights, activities) {
   const day = dateTW(meal.eaten_at);
   mealDays.set(day, (mealDays.get(day) ?? 0) + sumItems([meal]).calories);
  }
- const daily = Array.from({ length: 7 }, (_, index) => {
+  const daily = Array.from({ length: 7 }, (_, index) => {
   const day = datePlus(week, index);
-  return { day, calories: mealDays.get(day) ?? null };
+  const dayMeals = theseMeals.filter(meal => dateTW(meal.eaten_at) === day);
+  const dayActivities = activities.filter(log => dateTW(log.logged_at) === day);
+  const incompleteCalories = dayMeals.some(meal => !(meal.meal_items || []).length || meal.meal_items.some(item => item.calories == null || !Number.isFinite(Number(item.calories))));
+  const calories = dayMeals.length ? (incompleteCalories ? null : (mealDays.get(day) ?? 0)) : null;
+  const hasActivity = dayActivities.length > 0;
+  const completeBurn = hasActivity && dayActivities.every(log => log.calories_burned != null && Number.isFinite(Number(log.calories_burned)));
+  return { day, calories, calorieState: !dayMeals.length ? 'empty' : incompleteCalories ? 'incomplete' : 'logged', activityMinutes: hasActivity ? dayActivities.reduce((sum, log) => sum + val(log.duration_minutes), 0) : null,
+   burnedCalories: completeBurn ? dayActivities.reduce((sum, log) => sum + val(log.calories_burned), 0) : null,
+   burnState: !hasActivity ? 'empty' : completeBurn ? 'logged' : 'incomplete', activityCount: dayActivities.length, hasActivity };
  });
  const nutrients = sumItems(theseMeals);
+ const nutrientFields = { protein: 'protein_g', carbs: 'carbs_g', fat: 'fat_g' };
+ const nutrientIncomplete = Object.fromEntries(Object.entries(nutrientFields).map(([key, field]) => [key,
+  theseMeals.some(meal => !(meal.meal_items || []).length || meal.meal_items.some(item => item[field] == null || !Number.isFinite(Number(item[field]))))
+ ]));
  return {
-  nutrients, daily, mealDays: mealDays.size, mealCount: theseMeals.length,
-  average: mealDays.size ? nutrients.calories / mealDays.size : null,
+  nutrients, nutrientIncomplete, daily, mealDays: mealDays.size, mealCount: theseMeals.length,
+  average: mealDays.size && daily.filter(day => day.calorieState === 'logged').length === mealDays.size
+   ? nutrients.calories / mealDays.size : null,
   weight: weights.get(week) ?? { weight: null, days: 0 },
-  activity: activityTotal(activities.filter(log => inWeek(log.logged_at)))
+  activity: activityTotal(activities.filter(log => inWeek(log.logged_at))),
+  activityCalories: activities.filter(log => inWeek(log.logged_at)).length && activities.filter(log => inWeek(log.logged_at)).every(log => log.calories_burned != null && Number.isFinite(Number(log.calories_burned)))
+   ? activities.filter(log => inWeek(log.logged_at)).reduce((sum, log) => sum + val(log.calories_burned), 0) : null
  };
 }
 
-function reportBody(current, prior, start, isCurrent) {
+function reportBody(current, prior, start, isCurrent, calorieTarget = null) {
+ const cell = (value, digits) => typeof value === 'number' && Number.isFinite(value) ? fmt(value, digits) : esc(value ?? '—');
  const row = (name, a, b, digits = 0, comparable = true) =>
-  `<tr><th>${name}</th><td>${fmt(a, digits)}</td><td>${fmt(b, digits)}</td><td>${comparable ? delta(a, b, '', digits) : '—'}</td></tr>`;
+  `<tr><th>${name}</th><td>${cell(a, digits)}</td><td>${cell(b, digits)}</td><td>${comparable && typeof a === 'number' && typeof b === 'number' ? delta(a, b, '', digits) : '—'}</td></tr>`;
  return `<p class="muted">${start} 至 ${datePlus(start, 6)} · 台灣時間${isCurrent ? " · 本週仍在進行" : ""}</p>
   ${summary(stat(current.mealDays + '/7', '飲食紀錄天數'), stat(kg(current.weight.weight), '週平均體重'), stat(current.activity.minutes, '活動分鐘'))}
-  <h3>每日已記錄熱量</h3>${dayBars(current.daily, 'calories')}
-  <p class="muted">— 代表當天沒有實際飲食紀錄。</p>
+  <h3>每日攝取熱量</h3>${dayBars(current.daily, 'calories', { target: calorieTarget, unit: 'kcal' })}
+  <p class="muted">${calorieTarget ? `刻度線是每日目標 ${Math.round(calorieTarget)} kcal；超出會標示。` : '尚無可用的每日攝取目標。'} — 代表沒有實際飲食紀錄；「資料不完整」會保留空值，不會當成 0。</p>
+  <h3>每日運動</h3>${dayBars(current.daily, 'activityMinutes', { unit: '分' })}
+  <h3>每日運動消耗</h3>${dayBars(current.daily, 'burnedCalories', { unit: 'kcal' })}
+  <div class="insight-summary">${stat(current.activityCalories == null ? (current.activity.count ? '資料不完整' : '—') : `${Math.round(current.activityCalories)} kcal`, '本週已記錄運動消耗')}</div>
+  <p class="muted">運動消耗只加總有填寫消耗熱量的活動；「未記錄」代表當天沒有活動，「資料不完整」代表活動未填消耗。</p>
   <h3>與前一週比較</h3><div class="insight-scroll"><table class="insight-table">
    <thead><tr><th>指標</th><th>所選週</th><th>前一週</th><th>變化</th></tr></thead><tbody>
    ${row('飲食紀錄天數', current.mealDays, prior.mealDays)}
    ${row('餐次', current.mealCount, prior.mealCount)}
-   ${row('飲食總熱量 kcal', current.mealCount ? current.nutrients.calories : null, prior.mealCount ? prior.nutrients.calories : null)}
-   ${row('蛋白質總量 g', current.mealCount ? current.nutrients.protein : null, prior.mealCount ? prior.nutrients.protein : null, 1)}
+   ${row('飲食總熱量 kcal', current.mealCount ? current.daily.some(day => day.calorieState === 'incomplete') ? '資料不完整' : current.nutrients.calories : null, prior.mealCount ? prior.daily.some(day => day.calorieState === 'incomplete') ? '資料不完整' : prior.nutrients.calories : null)}
+   ${row('蛋白質總量 g', current.mealCount ? current.nutrientIncomplete.protein ? '資料不完整' : current.nutrients.protein : null, prior.mealCount ? prior.nutrientIncomplete.protein ? '資料不完整' : prior.nutrients.protein : null, 1)}
    ${row('有紀錄日平均 kcal', current.average, prior.average)}
    ${row('週平均體重 kg', current.weight.weight, prior.weight.weight, 2, current.weight.days >= 3 && prior.weight.days >= 3)}
    ${row('體重紀錄天數', current.weight.days, prior.weight.days)}
@@ -218,11 +231,11 @@ function reportBody(current, prior, start, isCurrent) {
    </tbody></table></div>
   <p class="muted">週平均體重每天取最新一筆。兩週各至少有 3 天體重紀錄才顯示差異。</p>
   <details><summary>所選週營養合計</summary><p>${current.mealCount
-   ? `蛋白質 ${fmt(current.nutrients.protein)} g · 碳水 ${fmt(current.nutrients.carbs)} g · 脂肪 ${fmt(current.nutrients.fat)} g`
+   ? `蛋白質 ${current.nutrientIncomplete.protein ? '資料不完整' : `${fmt(current.nutrients.protein)} g`} · 碳水 ${current.nutrientIncomplete.carbs ? '資料不完整' : `${fmt(current.nutrients.carbs)} g`} · 脂肪 ${current.nutrientIncomplete.fat ? '資料不完整' : `${fmt(current.nutrients.fat)} g`}`
    : '沒有實際飲食紀錄。'}</p></details>`;
 }
 
-export function renderReportInsights(db, uid) {
+export function renderReportInsights(db, uid, profile = {}, latestWeight = null) {
  const anchor = $('anReport'), picker = $('anWeekStart');
  if (!anchor || !picker) return;
  const currentWeek = monday(dateTW());
@@ -247,15 +260,17 @@ export function renderReportInsights(db, uid) {
      .eq('user_id', uid).gte('eaten_at', from).lt('eaten_at', to).order('id')),
     all(db.from('weight_logs').select('weight_kg,logged_at').eq('user_id', uid)
      .gte('logged_at', from).lt('logged_at', to).order('logged_at').order('id')),
-    all(activityQuery(db, uid, from, to))
+    all(db.from('activity_logs').select('logged_at,duration_minutes,steps,calories_burned').eq('user_id', uid).gte('logged_at', from).lt('logged_at', to).order('id'))
    ]);
    if (revision !== request || !document.contains(anchor)) return;
    const now = dateTW();
    const actualMeals = actual(meals).filter(meal => dateTW(meal.eaten_at) <= now);
    const loggedWeights = weeklyWeight(weights.filter(log => dateTW(log.logged_at) <= now));
    const loggedActivities = activities.filter(log => dateTW(log.logged_at) <= now);
+   const goal = calculateNutrition({ ...profile, _weightTrend: undefined }, latestWeight?.weight_kg);
+   const calorieTarget = goal.ready ? goal.calorieTarget : null;
    anchor.innerHTML = reportBody(reportStats(week, actualMeals, loggedWeights, loggedActivities),
-    reportStats(previous, actualMeals, loggedWeights, loggedActivities), week, week === currentWeek);
+    reportStats(previous, actualMeals, loggedWeights, loggedActivities), week, week === currentWeek, calorieTarget);
   } catch {
    if (revision === request && document.contains(anchor)) anchor.textContent = '週報暫時無法載入。切換週次可重新讀取。';
   }

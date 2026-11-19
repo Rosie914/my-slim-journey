@@ -4,6 +4,7 @@ const day = () => dateFormatter.format(new Date());
 const num = x => x === '' || x == null ? null : Number(x);
 const keys=['calories','protein_g','carbs_g','fat_g','fiber_g','sugar_g','sodium_mg'];
 const names=['熱量 kcal','蛋白質 g','碳水 g','脂肪 g','纖維 g','糖 g','鈉 mg'];
+const nutritionLabels={calories:'熱量',protein_g:'蛋白質',carbs_g:'碳水',fat_g:'脂肪'};
 const types={breakfast:'早餐',lunch:'午餐',dinner:'晚餐',snack:'點心',other:'其他'};
 const sourceLabels={ai_estimate:'AI 估算',manual:'手動輸入',favorite:'常吃食物',brand_label:'品牌標示',food_database:'食物資料庫'};
 const isoDate = date => new Date(date+'T12:00:00+08:00').toISOString();
@@ -69,6 +70,14 @@ const number = new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 1 });
 const methodNames = { menu: "新增飲食", text: "AI 文字記錄", photo: "AI 拍照辨識", manual: "手動輸入",
   favorites: "常吃食物", favoriteEdit: "管理常吃食物", edit: "編輯餐點", review: "確認飲食紀錄" };
 
+function suggestedMealType() {
+  const hour = Number(timeFormatter.format(new Date()).slice(0, 2));
+  if (hour >= 5 && hour < 11) return "breakfast";
+  if (hour >= 11 && hour < 16) return "lunch";
+  if (hour >= 16 && hour < 21) return "dinner";
+  return "snack";
+}
+
 function shiftDay(value, offset) {
   const date = new Date(value + "T00:00:00Z");
   date.setUTCDate(date.getUTCDate() + offset);
@@ -110,50 +119,105 @@ function calendarGrid(month, selected, today, markers) {
 
 function renderDaySummary(meals, selected, goal) {
   const planned = future(selected);
-  const items = meals.filter(meal => planned ? meal.source === "planned" : meal.source !== "planned")
-    .flatMap(meal => meal.meal_items || []);
-  const total = key => items.reduce((sum, item) => sum + (Number(item[key]) || 0), 0);
+  const visibleMeals = meals.filter(meal => planned ? meal.source === "planned" : meal.source !== "planned");
+  const items = visibleMeals.flatMap(meal => meal.meal_items || []);
+  const total = key => {
+    if (!items.length) return 0;
+    const values = items.map(item => item[key] == null || !Number.isFinite(Number(item[key])) ? null : Number(item[key]));
+    return values.some(value => value === null) ? null : values.reduce((sum, value) => sum + value, 0);
+  };
   const compare = selected === day() && goal?.ready;
   const intake = total("calories");
   const target = Number(goal?.calorieTarget);
-  const scale = Math.max(intake, target * 1.25);
-  return `<div class="diary-totals">
-    ${keys.slice(0, 4).map((key, index) => {
-      const label = index === 0 && compare ? "目標 " + number.format(goal.calorieTarget) + " kcal" : names[index];
-      return `<div><b>${number.format(total(key))}</b><small>${label}</small></div>`;
-    }).join("")}
-  </div>${compare && target > 0 && Number.isFinite(target) ? `
-    <div class="diary-energy" aria-hidden="true">
+  const scale = Math.max(intake ?? 0, target * 1.25);
+  const macros = [
+    { key: "protein_g", target: goal?.protein, label: "蛋白質", tone: "sage" },
+    { key: "carbs_g", target: goal?.carbs, label: "碳水", tone: "lavender" },
+    { key: "fat_g", target: goal?.fat, label: "脂肪", tone: "rose" }
+  ];
+  const missingLabels = [["calories", "熱量"], ...macros.map(({ key, label }) => [key, label])]
+    .filter(([key]) => total(key) == null).map(([, label]) => label);
+  const incompleteMeals = visibleMeals.map(meal => {
+    const mealItems = meal.meal_items || [];
+    const missing = Object.keys(nutritionLabels).filter(key => mealItems.some(item =>
+      item[key] == null || !Number.isFinite(Number(item[key]))));
+    return { meal, missing, foods: mealItems.map(item => item.food_name).filter(Boolean).join("、") };
+  }).filter(entry => entry.missing.length);
+  return `<div class="diary-calorie-summary">
+    <div><small>${planned ? "預計攝取熱量" : "當日攝取熱量"}</small><strong>${intake == null ? "資料不完整" : number.format(intake)}${intake == null ? "" : "<span> kcal</span>"}</strong></div>
+    ${compare && target > 0 ? `<small>目標 ${number.format(target)} kcal</small>` : ""}
+  </div>
+  <div class="diary-macro-list">${macros.map(macro => {
+    const actual = total(macro.key);
+    const macroTarget = compare && Number(macro.target) > 0 ? Number(macro.target) : null;
+    const percent = macroTarget && actual != null ? actual / macroTarget * 100 : 0;
+    const barScale = Math.max(125, Math.ceil(percent / 25) * 25);
+    const fillWidth = Math.min(percent, 100) * 100 / barScale;
+    const extraWidth = Math.max(0, percent - 100) * 100 / barScale;
+    return `<div class="diary-macro-row">
+      <div><b>${macro.label}</b><span>${actual == null ? "資料不完整" : number.format(actual)}${macroTarget ? ` / ${number.format(macroTarget)}` : ""}${actual == null && macroTarget ? "" : " g"}</span></div>
+      ${macroTarget && actual != null ? `<div class="diary-macro-meter ${macro.tone}" role="img" aria-label="${macro.label} ${number.format(actual)} 公克，目標 ${number.format(macroTarget)} 公克，${number.format(percent)}%">
+        <span class="diary-macro-fill" style="width:${fillWidth}%"></span>
+        ${extraWidth ? `<span class="diary-macro-overflow" style="width:${extraWidth}%"></span>` : ""}
+        <i style="left:${10000 / barScale}%" aria-hidden="true"></i>
+      </div>` : ""}
+    </div>`;
+  }).join("")}</div>${missingLabels.length ? `<p class="diary-note">部分食物尚未填寫${missingLabels.join("、")}；未填欄位不會當作 0 計算。</p>` : ""}${incompleteMeals.length ? `<details class="diary-missing-meals"><summary>${incompleteMeals.length} 筆餐點營養資料不完整 · 點選補齊</summary>
+    <div>${incompleteMeals.map(({ meal, missing, foods }) => `<button type="button" data-fill-meal="${esc(meal.id)}">
+      補齊${types[meal.meal_type] || types.other} · ${esc(foods || "餐點")}<small>缺少${missing.map(key => nutritionLabels[key]).join("、")}</small>
+    </button>`).join("")}</div></details>` : ""}${compare && target > 0 && Number.isFinite(target) ? `
+    ${intake == null ? "" : `<div class="diary-energy" aria-hidden="true">
       <span style="width:${100 * Math.min(intake, target) / scale}%"></span>
       <span class="diary-energy-extra" style="width:${100 * Math.max(0, intake - target) / scale}%"></span>
       <i style="left:${100 * target / scale}%"></i>
     </div>
-    <p class="diary-note">已記錄 ${number.format(100 * intake / target)}% · ${intake > target ? "超出 " + number.format(intake - target) + " kcal" : intake === target ? "剛好達到目標" : "距目標 " + number.format(target - intake) + " kcal"}</p>` : ""}`;
+    <p class="diary-note">已記錄 ${number.format(100 * intake / target)}% · ${intake > target ? "超出 " + number.format(intake - target) + " kcal" : intake === target ? "剛好達到目標" : "距目標 " + number.format(target - intake) + " kcal"}</p>`}` : ""}`;
 }
 
 function renderMeals(meals) {
   const groups = new Map(Object.keys(types).map(type => [type, []]));
   for (const meal of meals) groups.get(Object.hasOwn(types, meal.meal_type) ? meal.meal_type : "other").push(meal);
-  return [...groups].map(([type, entries]) => {
+  const emptyTypes = [];
+  const populated = [...groups].flatMap(([type, entries]) => {
+    if (!entries.length) {
+      emptyTypes.push(type);
+      return [];
+    }
     const count = entries.reduce((sum, meal) => sum + (meal.meal_items || []).length, 0);
-    const calories = entries.flatMap(meal => meal.meal_items || [])
-      .reduce((sum, item) => sum + (Number(item.calories) || 0), 0);
+    const allItems = entries.flatMap(meal => meal.meal_items || []);
+    const completeCalories = allItems.length > 0 && allItems.every(item => item.calories != null && Number.isFinite(Number(item.calories)));
+    const calories = completeCalories
+      ? number.format(allItems.reduce((sum, item) => sum + Number(item.calories), 0)) + " kcal"
+      : "熱量資料不完整";
     return `<article class="diary-meal-group"><div class="diary-meal-heading">
-      <div><h3>${types[type]}</h3><small>${count ? count + " 項 · " + number.format(calories) + " kcal" : "尚無紀錄"}</small></div>
+      <div><h3>${types[type]}</h3><small>${count} 項 · ${calories}</small></div>
       <button type="button" class="diary-icon" data-add-type="${type}" aria-label="新增${types[type]}">＋</button>
     </div>
-    ${entries.length ? `<details><summary>查看明細</summary>${entries.map(meal => {
+    <details><summary>查看明細</summary>${entries.map(meal => {
       const items = meal.meal_items || [];
+      const foods = items.map(item => `${item.food_name || "食物"}${item.quantity ? " · " + item.quantity : ""}`).join("、");
+      const completeCalories = items.length > 0 && items.every(item => item.calories != null && Number.isFinite(Number(item.calories)));
+      const mealCalories = completeCalories
+        ? number.format(items.reduce((sum, item) => sum + Number(item.calories), 0)) + " kcal"
+        : "熱量資料不完整";
+      const missingNutrition = Object.keys(nutritionLabels).filter(key => items.some(item =>
+        item[key] == null || !Number.isFinite(Number(item[key]))));
+      const mealTime = timeFormatter.format(new Date(meal.eaten_at));
       return `<div class="diary-entry">
-        <span>${items.map(item => esc(item.food_name)).join("、") || "餐點"}${meal.source === "planned" ? ' <small>預計</small>' : ""}</span>
+        <span class="diary-entry-content"><b>${esc(mealTime)} · ${esc(foods || "餐點")}</b>
+          <small>${meal.source === "planned" ? "預計" : "已記錄"} · ${missingNutrition.length ? "待補 " + missingNutrition.map(key => nutritionLabels[key]).join("、") : mealCalories}</small></span>
         <details class="diary-entry-menu"><summary aria-label="餐點選項">⋯</summary>
-          <button type="button" data-meal-action="edit" data-id="${esc(meal.id)}">編輯</button>
+          <button type="button" data-meal-action="edit" data-id="${esc(meal.id)}">${missingNutrition.length ? "補齊營養" : "編輯"}</button>
           <button type="button" data-meal-action="favorite" data-id="${esc(meal.id)}">加入常吃食物</button>
           <button type="button" data-meal-action="copy" data-id="${esc(meal.id)}">複製到指定日期</button>
           <button type="button" data-meal-action="delete" data-id="${esc(meal.id)}">刪除</button>
         </details></div>`;
-    }).join("")}</details>` : ""}</article>`;
-  }).join("");
+    }).join("")}</details></article>`;
+  });
+  return populated.join("") + (emptyTypes.length ? `<div class="diary-empty-meals" aria-label="新增其他餐別">
+    <small>${populated.length ? "快速新增其他餐別" : "尚無飲食紀錄，選擇餐別開始記錄"}</small>
+    <div>${emptyTypes.map(type => `<button type="button" data-add-type="${type}">＋ ${types[type]}</button>`).join("")}</div>
+  </div>` : "");
 }
 
 export function renderMealSuite() {
@@ -165,17 +229,8 @@ export function renderMealSuite() {
         <button type="button" id="diaryNext" class="diary-icon" aria-label="下一個月">›</button>
       </div>
       <div id="diaryCalendarGrid" class="diary-calendar-grid" aria-label="選擇飲食日期；使用方向鍵切換日期"></div>
-      <details id="diaryJump"><summary>跳到指定月份</summary>
-        <form id="diaryJumpForm">
-          <label>年份<input name="year" type="number" min="1900" max="9998" required></label>
-          <label>月份<input name="month" type="number" min="1" max="12" required></label>
-          <button type="submit">查看月份</button>
-        </form>
-      </details>
       <div class="diary-calendar-footer">
-        <button type="button" id="diaryDayBack" class="diary-icon" aria-label="前一天">‹</button>
         <span id="diarySelected" aria-live="polite"></span>
-        <button type="button" id="diaryDayForward" class="diary-icon" aria-label="後一天">›</button>
         <button type="button" id="diaryToday" class="diary-link">回到今天</button>
       </div>
       <p id="diaryLegend" class="diary-note">● 已記錄　<span>◇ 預計餐點</span></p>
@@ -265,7 +320,7 @@ export function initMealSuite(db, uid, config = {}) {
     calendarToggle.setAttribute("aria-expanded", String(calendarOpen));
     grid.hidden = !calendarOpen;
     get("diaryLegend").hidden = !calendarOpen;
-    get("diaryJump").hidden = !calendarOpen;
+    get("diaryToday").hidden = selected === day();
     if (calendarOpen) grid.innerHTML = calendarGrid(month, selected, day(), markers);
     get("diarySelected").textContent = visibleDate(selected) + (future(selected) ? " · 預計飲食" : "");
   }
@@ -325,9 +380,10 @@ export function initMealSuite(db, uid, config = {}) {
     }
   }
 
-  function selectDate(date) {
+  function selectDate(date, collapseCalendar = false) {
     if (busy) return;
     selected = date;
+    if (collapseCalendar) calendarOpen = false;
     config.onDateChange?.(date);
     const newMonth = date.slice(0, 7);
     if (month !== newMonth) {
@@ -581,7 +637,7 @@ export function initMealSuite(db, uid, config = {}) {
 
   function openManual(type, items = []) {
     const date = selected;
-    openView("manual", `<form>${addFields(items, type || "breakfast")}<div data-meal-preview class="diary-note" aria-live="polite"></div><button type="submit">儲存飲食</button><p data-status role="status"></p></form>`);
+    openView("manual", `<form>${addFields(items, type || suggestedMealType())}<div data-meal-preview class="diary-note" aria-live="polite"></div><button type="submit">儲存飲食</button><p data-status role="status"></p></form>`);
     let read;
     const form = bindForm(async data => {
       await save(db, [{ meal_type: data.get("meal_type"), source: sourceFor(date, "manual"),
@@ -609,7 +665,7 @@ export function initMealSuite(db, uid, config = {}) {
     const field = textMode
       ? '<label>吃了什麼？<textarea name="text" required maxlength="2000" rows="4" placeholder="例如：午餐一碗雞肉飯和一杯無糖茶"></textarea></label>'
       : '<label>餐點照片<input name="photo" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" required><small class="diary-note">支援 JPG、PNG、WebP，檔案上限 10 MB。</small></label><div data-photo-preview class="diary-photo-preview" aria-live="polite" hidden></div>';
-    openView(view, `<form><label>餐別<select name="meal_type">${options(type || "breakfast")}</select></label>
+    openView(view, `<form><label>餐別<select name="meal_type">${options(type || suggestedMealType())}</select></label>
       <label>用餐時間<input name="meal_time" type="time" value="${defaultTime}" required></label>
       ${field}<button type="submit">${textMode ? "解析文字" : "辨識照片"}</button><p data-status role="status"></p></form>`);
     const form = bindForm(async data => {
@@ -961,39 +1017,23 @@ export function initMealSuite(db, uid, config = {}) {
     } catch (error) { showMessage(error.message || "刪除失敗。"); }
     finally { busy = false; button.disabled = false; }
   };
+  get("diarySummary").onclick = event => {
+    const button = event.target.closest("[data-fill-meal]");
+    if (!button || busy) return;
+    const meal = meals.find(entry => entry.id === button.dataset.fillMeal);
+    if (meal) openEdit(meal);
+  };
   get("diaryAdd").onclick = () => { if (!busy) openMenu(); };
   get("diaryPrevious").onclick = () => moveMonth(-1);
   get("diaryNext").onclick = () => moveMonth(1);
   get("diaryToday").onclick = () => selectDate(day());
-  get("diaryDayBack").onclick = () => selectDate(shiftDay(selected, -1));
-  get("diaryDayForward").onclick = () => selectDate(shiftDay(selected, 1));
-  const jump = get("diaryJump");
-  const jumpForm = get("diaryJumpForm");
-  jump.ontoggle = () => {
-    if (!jump.open) return;
-    const [year, monthNumber] = month.split("-");
-    jumpForm.elements.year.value = year;
-    jumpForm.elements.month.value = Number(monthNumber);
-  };
-  jumpForm.onsubmit = event => {
-    event.preventDefault();
-    if (busy || !jumpForm.reportValidity()) return;
-    const year = Number(jumpForm.elements.year.value);
-    const monthNumber = String(Number(jumpForm.elements.month.value)).padStart(2, "0");
-    month = year + "-" + monthNumber;
-    markers = new Map();
-    calendarOpen = true;
-    jump.open = false;
-    drawCalendar();
-    calendarToggle.focus();
-    void loadMarkers();
-  };
   calendarToggle.onclick = () => { calendarOpen = !calendarOpen; drawCalendar(); };
   grid.onclick = event => {
     const button = event.target.closest("[data-date]");
     if (!button) return;
-    selectDate(button.dataset.date);
-    grid.querySelector('[data-date="' + selected + '"]')?.focus();
+    selectDate(button.dataset.date, true);
+    if (calendarOpen) grid.querySelector('[data-date="' + selected + '"]')?.focus();
+    else calendarToggle.focus();
   };
   grid.onkeydown = event => {
     const button = event.target.closest("[data-date]");

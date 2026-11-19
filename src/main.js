@@ -78,6 +78,47 @@ async function loadStages() {
   stages = data || [];
 }
 
+async function loadAllUserRows(table, userId) {
+  const rows = [];
+  const pageSize = 500;
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabase.from(table).select("*")
+      .eq("user_id", userId).order("id", { ascending: true })
+      .range(offset, offset + pageSize - 1);
+    if (error) throw error;
+    rows.push(...(data || []));
+    if ((data || []).length < pageSize) return rows;
+  }
+}
+
+async function buildUserBackup(userId) {
+  const [{ data: savedProfile, error: profileError }, stagesData, mealsData,
+    mealItems, weights, activities, favorites] = await Promise.all([
+    supabase.from("profiles").select("*").eq("id", userId).maybeSingle(),
+    loadAllUserRows("goal_stages", userId),
+    loadAllUserRows("meals", userId),
+    loadAllUserRows("meal_items", userId),
+    loadAllUserRows("weight_logs", userId),
+    loadAllUserRows("activity_logs", userId),
+    loadAllUserRows("user_favorite_foods", userId)
+  ]);
+  if (profileError) throw profileError;
+  return {
+    app: "My Slim Journey",
+    exported_at: new Date().toISOString(),
+    account_email: currentUser.email || null,
+    data: {
+      profile: savedProfile,
+      goal_stages: stagesData,
+      meals: mealsData,
+      meal_items: mealItems,
+      weight_logs: weights,
+      activity_logs: activities,
+      favorite_foods: favorites
+    }
+  };
+}
+
 async function loadLatestWeight() {
   const { data, error } = await supabase
     .from("weight_logs")
@@ -236,6 +277,10 @@ const homeStyles = `<style>
   .home-dashboard dl { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:12px 0 0; }
   .home-dashboard dt { font-size:12px; color:#766762; }
   .home-dashboard dd { font-weight:700; margin:4px 0 0; }
+  .home-exercise-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin:12px 0; }
+  .home-exercise-grid > div { display:grid; gap:4px; padding:12px; border-radius:13px; background:#faf5f4; }
+  .home-exercise-grid span { color:#766762; font-size:12px; }
+  .home-exercise-grid b { color:#514744; font-size:17px; }
   .home-stage { border-top:1px solid #eee6e2; padding-top:11px; }
   .home-dashboard .home-link { min-height:40px; padding:7px 9px; color:#765651; background:#f7efed; font-size:12px; white-space:nowrap; }
   .home-trend { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:4px; text-align:center; }
@@ -247,6 +292,7 @@ const homeStyles = `<style>
   .home-meals li { border-top:1px solid #eee6e2; padding:10px 0; font-size:14px; }
   .home-meals li > b { white-space:nowrap; }
   .home-meals p { color:#766762; font-size:12px; margin:3px 0 0; overflow-wrap:anywhere; }
+  .home-meals .home-missing { display:block; margin-top:4px; color:#9a6b67; font-size:11px; }
   .home-meals p:empty { display:none; }
   .home-dashboard .home-coach { background:#f2edf5; }
   .home-coach p { margin:6px 0 0; }
@@ -260,6 +306,17 @@ const mealLabels = { breakfast: "早餐", lunch: "午餐", dinner: "晚餐", sna
 
 function shiftHomeDate(date, days) {
   return new Date(Date.parse(date + "T00:00:00Z") + days * 86400000).toISOString().slice(0, 10);
+}
+
+function stagePace(fromWeight, fromDate, targetWeight, targetDate) {
+  const start = Number(fromWeight), target = Number(targetWeight);
+  const from = Date.parse(String(fromDate || "") + "T00:00:00Z");
+  const to = Date.parse(String(targetDate || "") + "T00:00:00Z");
+  if (!(start > 0) || !(target > 0) || !Number.isFinite(from) || !Number.isFinite(to)) return "填入體重與日期後顯示速率參考";
+  const days = Math.round((to - from) / 86400000);
+  if (days <= 0) return "目標日期需晚於前一個階段日期";
+  const weekly = (start - target) * 7 / days;
+  return `${weekly >= 0 ? "每週下降" : "每週增加"}約 ${Math.abs(weekly).toFixed(2)} kg`;
 }
 
 async function loadHomeMeals(userId, date) {
@@ -315,15 +372,12 @@ function renderHomeEnergyPlan(goal, recordedActivity) {
   const actual = recordedActivity === undefined ? "暫時無法讀取"
     : recordedActivity === null ? "尚未記錄" : homeNumber.format(Math.round(recordedActivity)) + " kcal";
   return `<section class="card">
-    <div class="home-row"><h2>飲食與運動安排</h2><button type="button" data-tab="activity" class="home-link">記錄運動 ›</button></div>
-    ${goal.ready ? `<dl>
-      <div><dt>${goal.manual ? "自訂每日攝取" : "估計每日攝取目標"}</dt><dd>${homeNumber.format(goal.calorieTarget)} kcal</dd></div>
-      <div><dt>日常總消耗估計</dt><dd>${homeNumber.format(goal.tdee)} kcal</dd></div>
-      <div><dt>規劃額外運動消耗</dt><dd>${homeNumber.format(goal.plannedExtraActivity)} kcal</dd></div>
-      <div><dt>計畫熱量赤字</dt><dd>${homeNumber.format(goal.plannedDeficit)} kcal</dd></div>
-    </dl>` : ""}
-    <p class="home-note">今日已記錄運動消耗 · ${actual}</p>
-    <p class="home-note">日常總消耗已含活動程度。規劃只加上超出日常的運動，已記錄的運動熱量另列。</p>
+    <div class="home-row"><h2>今日運動</h2><button type="button" data-tab="activity" class="home-link">記錄運動 ›</button></div>
+    <div class="home-exercise-grid">
+      <div><span>計畫額外運動</span><b>${goal.ready ? homeNumber.format(goal.plannedExtraActivity) + " kcal" : "—"}</b></div>
+      <div><span>已記錄消耗</span><b>${actual}</b></div>
+    </div>
+    <p class="home-note">日常活動已計入每日總消耗；這裡只顯示額外運動計畫與今天的運動紀錄。</p>
   </section>`;
 }
 
@@ -331,6 +385,21 @@ function homeMeter(label, percent, tone, valueText) {
   const value = Math.max(0, Math.min(100, Math.round(percent)));
   return `<div class="home-meter ${tone}" role="progressbar" aria-label="${label}"
     aria-valuenow="${value}" aria-valuetext="${valueText}"><span style="width:${value}%"></span></div>`;
+}
+
+function macroMeter(label, actual, target, tone) {
+  const percent = target > 0 ? Math.max(0, actual / target * 100) : 0;
+  const scale = Math.max(125, Math.ceil(percent / 25) * 25);
+  const targetStop = 10000 / scale;
+  const regularWidth = Math.min(percent, 100) * 100 / scale;
+  const extraWidth = Math.max(0, percent - 100) * 100 / scale;
+  const shownPercent = homeNumber.format(percent);
+  const labelText = `${label} ${homeNumber.format(actual)} g / 目標 ${homeNumber.format(target)} g，${shownPercent}%`;
+  return `<div class="macro-meter ${tone}" role="img" aria-label="${escapeHTML(labelText)}">
+    <span class="macro-meter-fill" style="width:${regularWidth}%"></span>
+    ${extraWidth > 0 ? `<span class="macro-meter-overflow" style="width:${extraWidth}%"></span>` : ""}
+    <i class="macro-meter-target" style="left:${targetStop}%" aria-hidden="true"></i>
+  </div>`;
 }
 
 function renderCalorieMeter(actual, target) {
@@ -353,9 +422,12 @@ function renderCalorieMeter(actual, target) {
 
 function renderHomeNutrition(goal, totals, date) {
   if (!totals) return '<section class="card"><h2>今日營養攝取</h2><p>飲食紀錄暫時無法載入。</p></section>';
-  const remaining = goal.ready ? Math.round(goal.calorieTarget - totals.calories) : null;
-  const actualCalories = homeNumber.format(Math.round(totals.calories));
+  const complete = totals._complete || { calories: true, protein: true, carbs: true, fat: true };
+  const remaining = goal.ready && complete.calories ? Math.round(goal.calorieTarget - totals.calories) : null;
+  const actualCalories = complete.calories ? homeNumber.format(Math.round(totals.calories)) : "資料不完整";
   const targetCalories = goal.ready ? homeNumber.format(goal.calorieTarget) : null;
+  const incompleteLabels = Object.entries({ calories: "熱量", protein: "蛋白質", carbs: "碳水", fat: "脂肪" })
+    .filter(([key]) => !complete[key]).map(([, label]) => label);
   const macros = [
     ["蛋白質", "protein", "sage"],
     ["碳水", "carbs", "lavender"],
@@ -364,26 +436,27 @@ function renderHomeNutrition(goal, totals, date) {
   return `<section class="card home-nutrition">
     <div class="home-row"><h2>今日營養攝取</h2><span class="home-note">${date.slice(5).replace("-", "/")}</span></div>
     <div class="home-row home-energy">
-      <div><span class="home-note">${goal.ready ? (remaining < 0 ? "超出目標" : "剩餘熱量") : "已攝取"}</span>
-      <div class="home-number">${remaining === null ? actualCalories : homeNumber.format(Math.abs(remaining))} <small>kcal</small></div></div>
+      <div><span class="home-note">${goal.ready ? (remaining === null ? "熱量統計" : remaining < 0 ? "超出目標" : "剩餘熱量") : "已攝取"}</span>
+      <div class="home-number">${remaining === null ? actualCalories : homeNumber.format(Math.abs(remaining))}${actualCalories === "資料不完整" && remaining === null ? "" : " <small>kcal</small>"}</div></div>
       ${goal.ready ? `<div class="home-energy-side"><span class="home-note">已攝取 / 目標</span><b>${actualCalories} / ${targetCalories}</b></div>` : ""}
     </div>
-    ${goal.ready ? renderCalorieMeter(totals.calories, goal.calorieTarget)
+    ${goal.ready && complete.calories ? renderCalorieMeter(totals.calories, goal.calorieTarget)
+      : goal.ready ? '<p class="home-note">部分食物缺少熱量資料，暫不比較熱量目標。</p>'
       : `<p class="home-note">${escapeHTML(goal.reason || "補齊個人設定後即可顯示每日目標。")}</p>`}
     <div class="home-macros">
       ${macros.map(([label, key, tone]) => {
-        const actual = homeNumber.format(totals[key]);
+        const actual = complete[key] ? homeNumber.format(totals[key]) : "資料不完整";
         const target = goal.ready ? goal[key] : null;
         const values = `${actual}${target === null ? "" : " / " + target} g`;
         return `<div class="home-macro"><div class="home-row"><strong>${label}</strong><span>${values}</span></div>
-          ${target > 0 ? homeMeter(label, totals[key] / target * 100, tone, values) : ""}</div>`;
+          ${target > 0 && complete[key] ? macroMeter(label, totals[key], target, tone) : ""}</div>`;
       }).join("")}
     </div>
+    ${incompleteLabels.length ? `<p class="home-note">${incompleteLabels.join("、")}有未填資料，總量暫不完整。</p>` : ""}
     ${goal.ready ? `<details class="home-details"><summary>熱量估算與階段資訊</summary>
-      <dl><div><dt>基礎代謝</dt><dd>${goal.bmr} kcal</dd></div><div><dt>每日總消耗</dt><dd>${goal.tdee} kcal</dd></div></dl>
       ${renderNutritionBasis(goal)}
       <p>${escapeHTML(goal.activityLabel)}</p>
-      ${goal.stageName ? `<p>${escapeHTML(goal.stageName)} · 飲食與額外運動合計換算約每週 ${goal.weeklyChange.toFixed(2)} kg</p>` : ""}
+      ${goal.stageName ? `<p>目前階段：${escapeHTML(goal.stageName)}</p>` : ""}
       ${Math.abs(goal.macroCalories - goal.calorieTarget) > 5 ? `<p>營養素換算熱量為 ${goal.macroCalories} kcal，與熱量目標不同。</p>` : ""}
       ${goal.warnings.map(warning => `<p>${escapeHTML(warning)}</p>`).join("")}
     </details>` : ""}
@@ -437,26 +510,35 @@ function renderHome(meals, weights, date, weightTrend, recordedActivity) {
   const stage = [...stages]
     .filter(entry => entry.target_date >= date && Number(entry.target_weight_kg) > 0)
     .sort((a, b) => a.target_date.localeCompare(b.target_date))[0];
-  const totals = { calories: 0, protein: 0, carbs: 0, fat: 0 };
+  const nutritionFields = { calories: "calories", protein: "protein_g", carbs: "carbs_g", fat: "fat_g" };
+  const nutritionLabels = { calories: "熱量", protein: "蛋白質", carbs: "碳水", fat: "脂肪" };
+  const totals = { calories: 0, protein: 0, carbs: 0, fat: 0,
+    _complete: Object.fromEntries(Object.keys(nutritionFields).map(key => [key, true])) };
   const groups = new Map();
   for (const meal of meals ?? []) {
     const type = Object.hasOwn(mealLabels, meal.meal_type) ? meal.meal_type : "other";
-    const group = groups.get(type) ?? { calories: 0, names: new Set() };
+    const group = groups.get(type) ?? { calories: 0, caloriesComplete: true, names: new Set(), missing: new Set() };
     groups.set(type, group);
     for (const item of meal.meal_items ?? []) {
-      const calories = Number(item.calories) || 0;
-      group.calories += calories;
       if (item.food_name) group.names.add(item.food_name);
-      totals.calories += calories;
-      totals.protein += Number(item.protein_g) || 0;
-      totals.carbs += Number(item.carbs_g) || 0;
-      totals.fat += Number(item.fat_g) || 0;
+      for (const [key, field] of Object.entries(nutritionFields)) {
+        const value = item[field];
+        if (value == null || !Number.isFinite(Number(value))) {
+          totals._complete[key] = false;
+          group.missing.add(nutritionLabels[key]);
+          if (key === "calories") group.caloriesComplete = false;
+        } else {
+          totals[key] += Number(value);
+          if (key === "calories") group.calories += Number(value);
+        }
+      }
     }
   }
   const mealRows = Object.entries(mealLabels).filter(([type]) => groups.has(type)).map(([type, label]) => {
     const group = groups.get(type);
-    return `<li class="home-row"><div><strong>${label}</strong><p>${[...group.names].map(escapeHTML).join("、")}</p></div>
-      <b>${homeNumber.format(Math.round(group.calories))} kcal</b></li>`;
+    return `<li class="home-row"><div><strong>${label}</strong><p>${[...group.names].map(escapeHTML).join("、")}</p>
+      ${group.missing.size ? `<small class="home-missing">待補：${[...group.missing].join("、")}</small>` : ""}</div>
+      <b>${group.caloriesComplete ? homeNumber.format(Math.round(group.calories)) + " kcal" : "熱量資料不完整"}</b></li>`;
   }).join("");
   return `${homeStyles}<main class="home-dashboard">
     ${renderHomeNutrition(goal, meals ? totals : null, date)}
@@ -506,6 +588,7 @@ function renderAppShell(content) {
       <details class="account-security"${passwordRecovery ? " open" : ""}><summary>帳號安全</summary>
         <form id="passwordForm"><label>設定新密碼<input name="password" type="password" autocomplete="new-password" minlength="6" placeholder="至少 6 個字元" required></label><button type="submit">更新密碼</button></form>
       </details>
+      <details class="account-data"><summary>資料備份</summary><p>下載你的個人設定、目標階段、飲食、體重、運動與常吃食物紀錄。照片檔案不包含在備份中。</p><button id="exportData" type="button">下載我的資料</button><p id="exportStatus" role="status" aria-live="polite"></p></details>
       <button id="logout" type="button" class="account-logout">登出</button></section>` : ""}
     ${content}
     <nav class="app-tabs" aria-label="主要導覽">
@@ -549,6 +632,21 @@ async function showApp() {
     }
 
     if (currentTab === "settings") {
+      const orderedStages = [...stages].sort((a, b) => a.target_date.localeCompare(b.target_date));
+      const firstWeight = Number(latestWeight?.weight_kg) || Number(profile?.start_weight_kg);
+      const firstDate = homeDate.format(new Date());
+      const stageRows = orderedStages.map((stage, index) => {
+        const previous = orderedStages[index - 1];
+        const fromWeight = previous ? Number(previous.target_weight_kg) : firstWeight;
+        const fromDate = previous ? previous.target_date : firstDate;
+        return `<div class="stage-row">
+          <h3>${escapeHTML(stage.stage_name)}</h3>
+          <p>目標：${Number(stage.target_weight_kg).toFixed(1)} kg · ${escapeHTML(stage.target_date.replaceAll("-", "/"))}</p>
+          <p class="stage-pace">${escapeHTML(stagePace(fromWeight, fromDate, stage.target_weight_kg, stage.target_date))}</p>
+          <button type="button" class="edit-stage" data-id="${escapeHTML(stage.id)}">修改</button>
+          <button type="button" class="delete-stage" data-id="${escapeHTML(stage.id)}" style="background:#eee;color:#80635b">刪除</button>
+        </div>`;
+      }).join("");
       content = `
         <details class="card settings-panel" open>
           <summary><span>個人資料</span><small>身高、活動量與營養目標</small></summary>
@@ -576,7 +674,7 @@ async function showApp() {
         <details class="card settings-panel">
           <summary><span>目標階段</span><small>${stages.length ? `${stages.length} 個階段` : "尚未設定"}</small></summary>
           <div class="settings-panel-body">
-          <p class="muted">你可以自行新增、修改及刪除階段。</p>
+          <p class="muted">階段會依目標日期排序；每週變化是依目前體重或上一階段目標換算的速率參考。</p>
 
           <form id="stageForm">
             <input type="hidden" name="stage_id">
@@ -590,6 +688,7 @@ async function showApp() {
             <label>目標日期
               <input name="target_date" type="date" required>
             </label>
+            <p id="stagePacePreview" class="stage-pace" aria-live="polite">填入體重與日期後顯示速率參考。</p>
             <button type="submit" id="stageSubmit">新增階段</button>
             <button type="button" id="cancelStage"
               style="display:none;background:#eee;color:#665">
@@ -597,25 +696,7 @@ async function showApp() {
             </button>
           </form>
           <h3>已設定的階段</h3>
-          ${
-            stages.length
-              ? stages.map((stage, index) => `
-                <div class="stage-row">
-                  <h3>${escapeHTML(stage.stage_name)}</h3>
-                  <p>目標：${stage.target_weight_kg} kg</p>
-                  <p>期限：${stage.target_date}</p>
-                  <button type="button" class="edit-stage"
-                    data-id="${stage.id}">修改</button>
-                  <button type="button" class="delete-stage"
-                    data-id="${stage.id}"
-                    style="background:#eee;color:#80635b">
-                    刪除
-                  </button>
-                </div>
-                ${index < stages.length - 1 ? "<hr>" : ""}
-              `).join("")
-              : "<p class='muted'>尚未新增階段目標。</p>"
-          }
+          ${stageRows || "<p class='muted'>尚未新增階段目標。</p>"}
           </div>
         </details>
       `;
@@ -636,14 +717,14 @@ async function showApp() {
   const nutritionProfile = { ...profile, _stages: stages };
   const analyticsTasks = {
     weight: async () => {
-      await initAnalytics(supabase, analyticsUser, analyticsTab, showApp);
+      await initAnalytics(supabase, analyticsUser, analyticsTab);
       if (currentTab === analyticsTab) await renderWeightInsights(supabase, analyticsUser, nutritionProfile);
     },
     activity: async () => {
-      await initAnalytics(supabase, analyticsUser, analyticsTab, showApp);
+      await initAnalytics(supabase, analyticsUser, analyticsTab);
       if (currentTab === analyticsTab) await renderActivityInsights(supabase, analyticsUser);
     },
-    reports: () => renderReportInsights(supabase, analyticsUser),
+    reports: () => renderReportInsights(supabase, analyticsUser, nutritionProfile, latestWeight),
     coach: () => renderCoachGuidance(supabase, analyticsUser, nutritionProfile, latestWeight)
   };
   if (Object.hasOwn(analyticsTasks, analyticsTab)) {
@@ -693,6 +774,30 @@ async function showApp() {
     showMessage("密碼已更新。");
   };
 
+  const exportButton = document.querySelector("#exportData");
+  if (exportButton) exportButton.onclick = async () => {
+    const status = document.querySelector("#exportStatus");
+    exportButton.disabled = true;
+    status.textContent = "正在整理個人資料…";
+    try {
+      const backup = await buildUserBackup(currentUser.id);
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `my-slim-journey-backup-${today()}.json`;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      status.textContent = "備份已下載到你的裝置。";
+    } catch (error) {
+      status.textContent = `備份失敗：${error.message || "請稍後重試。"}`;
+    } finally {
+      exportButton.disabled = false;
+    }
+  };
+
   const profileForm = document.querySelector("#profileForm");
 
   if (profileForm) {
@@ -739,16 +844,46 @@ async function showApp() {
   const stageForm = document.querySelector("#stageForm");
 
   if (stageForm) {
+    const pacePreview = document.querySelector("#stagePacePreview");
+    const updateStagePace = () => {
+      const stageId = stageForm.elements.stage_id.value;
+      const weight = Number(stageForm.elements.target_weight_kg.value);
+      const targetDate = stageForm.elements.target_date.value;
+      if (!(weight > 0) || !targetDate) {
+        pacePreview.textContent = "填入體重與日期後顯示速率參考。";
+        return;
+      }
+      if (stages.some(stage => stage.id !== stageId && stage.target_date === targetDate)) {
+        pacePreview.textContent = "這個日期已經有目標階段，請選擇不同日期。";
+        return;
+      }
+      const previous = [...stages]
+        .filter(stage => stage.id !== stageId && stage.target_date < targetDate)
+        .sort((a, b) => a.target_date.localeCompare(b.target_date)).at(-1);
+      pacePreview.textContent = stagePace(
+        previous ? Number(previous.target_weight_kg) : Number(latestWeight?.weight_kg) || Number(profile?.start_weight_kg),
+        previous?.target_date || homeDate.format(new Date()), weight, targetDate
+      );
+    };
+    stageForm.addEventListener("input", updateStagePace);
+    stageForm.addEventListener("change", updateStagePace);
+    updateStagePace();
     stageForm.onsubmit = async event => {
       event.preventDefault();
       const f = new FormData(stageForm);
       const stageId = f.get("stage_id");
+      const targetDate = String(f.get("target_date"));
+      const stageName = String(f.get("stage_name")).trim();
+      if (!stageName) return showMessage("請輸入階段名稱。");
+      if (stages.some(stage => stage.id !== stageId && stage.target_date === targetDate)) {
+        return showMessage("每個目標階段請設定不同日期。");
+      }
 
       const payload = {
         user_id: currentUser.id,
-        stage_name: f.get("stage_name"),
+        stage_name: stageName,
         target_weight_kg: Number(f.get("target_weight_kg")),
-        target_date: f.get("target_date"),
+        target_date: targetDate,
         sort_order: stageId
           ? stages.find(s => s.id === stageId)?.sort_order || stages.length + 1
           : stages.length + 1,
@@ -772,6 +907,7 @@ async function showApp() {
       stageForm.elements.stage_id.value = "";
       document.querySelector("#stageSubmit").textContent = "新增階段";
       document.querySelector("#cancelStage").style.display = "none";
+      updateStagePace();
     };
 
     document.querySelectorAll(".edit-stage").forEach(button => {
@@ -783,6 +919,7 @@ async function showApp() {
         stageForm.elements.stage_name.value = stage.stage_name;
         stageForm.elements.target_weight_kg.value = stage.target_weight_kg;
         stageForm.elements.target_date.value = stage.target_date;
+      updateStagePace();
 
         document.querySelector("#stageSubmit").textContent = "儲存修改";
         document.querySelector("#cancelStage").style.display = "block";

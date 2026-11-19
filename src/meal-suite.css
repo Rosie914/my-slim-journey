@@ -61,10 +61,26 @@
 .diary-day[aria-pressed="true"] .diary-date-dot.planned { outline-color: #f5d8ec; }
 .diary-calendar-footer { margin-top: 9px; font-size: 13px; color: #63515d; }
 .diary-overview #diaryAdd { min-height: 44px; padding-inline: 12px; }
-.diary-totals { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; margin: 10px 0; }
-.diary-totals > div { border-radius: 10px; padding: 9px 3px; text-align: center; background: #f8f2f5; overflow-wrap: anywhere; }
-.diary-totals b, .diary-totals small, .diary-meal-heading small { display: block; }
-.diary-totals small, .diary-meal-heading small, .diary-entry small { font-size: 11px; color: #746471; }
+.diary-calorie-summary { display: flex; justify-content: space-between; align-items: end; gap: 12px; margin: 10px 0 14px; padding: 12px 14px; border-radius: 14px; background: #f8f2f5; }
+.diary-calorie-summary small { display: block; color: #746471; font-size: 12px; }
+.diary-calorie-summary strong { display: block; margin-top: 3px; color: #493a46; font-size: 25px; font-variant-numeric: tabular-nums; }
+.diary-calorie-summary strong span { font-size: 13px; font-weight: 500; }
+.diary-macro-list { display: grid; gap: 12px; margin: 12px 0; }
+.diary-macro-row > div:first-child { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 14px; }
+.diary-macro-row > div:first-child span { color: #746471; font-variant-numeric: tabular-nums; }
+.diary-macro-meter { position: relative; display: flex; height: 9px; margin-top: 6px; border-radius: 999px; background: #eee8eb; }
+.diary-macro-meter > span { display: block; flex: 0 0 auto; height: 100%; border-radius: 999px 0 0 999px; }
+.diary-macro-meter .diary-macro-fill { background: #87a795; }
+.diary-macro-meter.lavender .diary-macro-fill { background: #a69bc0; }
+.diary-macro-meter.rose .diary-macro-fill { background: #c88791; }
+.diary-macro-meter .diary-macro-overflow { background: #bd6575; border-radius: 0 999px 999px 0; }
+.diary-macro-meter i { position: absolute; top: -2px; bottom: -2px; width: 2px; z-index: 1; background: #493a46; }
+.diary-missing-meals { margin: 8px 0 12px; padding: 9px 11px; border-radius: 12px; background: #fbf2ee; }
+.diary-missing-meals summary { color: #895b59; font-size: 12px; font-weight: 650; }
+.diary-missing-meals > div { display: grid; gap: 6px; margin-top: 8px; }
+.diary-missing-meals button { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 42px; padding: 8px 10px; color: #5f4057; background: #fff; text-align: left; font-size: 12px; }
+.diary-missing-meals button small { flex: none; color: #9a6b67; font-size: 10px; }
+.diary-meal-heading small, .diary-entry small { display: block; font-size: 11px; color: #746471; }
 .diary-meal-group { border-top: 1px solid #eee5e9; padding: 10px 0; }
 .diary-meal-heading small { margin-top: 3px; }
 .diary-meal-group > details { margin-top: 3px; }
@@ -87,11 +103,6 @@
 .diary [data-items] + button { width: auto; }
 .diary [data-favorite-new] { flex-shrink: 0; }
 .diary input[type="search"] { min-width: 0; }
-.diary #diaryJump { border-top: 1px solid #eee5e1; margin-top: 8px; }
-.diary #diaryJump summary { cursor: pointer; padding: 12px 0; font-size: 14px; }
-.diary #diaryJumpForm { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.diary #diaryJumpForm label { margin: 0; }
-.diary #diaryJumpForm button { grid-column: 1 / -1; }
 .diary-energy { display: flex; position: relative; height: 12px; border-radius: 8px; background: #eee8e5; }
 .diary-energy span { background: #80667b; border-radius: 8px 0 0 8px; }
 .diary-energy .diary-energy-extra { background: #bd8290; border-radius: 0 8px 8px 0; }
@@ -100,3 +111,9 @@
 .diary #diaryLegend span { color: #795672; }
 .diary-photo-preview { display: grid; justify-items: start; gap: 5px; margin: 8px 0 12px; color: #746471; font-size: 12px; }
 .diary-photo-preview img { display: block; width: min(100%, 300px); max-height: 230px; object-fit: cover; border-radius: 14px; background: #f5efed; }
+.diary-entry-content { display: block; }
+.diary-entry-content b { display: block; font-size: 13px; font-weight: 650; }
+.diary-empty-meals { padding-top: 12px; border-top: 1px solid #eee5e9; }
+.diary-empty-meals > small { display: block; margin-bottom: 7px; color: #746471; font-size: 12px; }
+.diary-empty-meals > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.diary-empty-meals button { min-height: 36px; padding: 7px 10px; border-radius: 999px; color: #5f4057; background: #f1e9ef; font-size: 12px; }

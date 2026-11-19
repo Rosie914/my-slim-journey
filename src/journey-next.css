@@ -1,9 +1,14 @@
-/* Batch 3 mobile layout fixes: prevent native iOS date inputs escaping cards. */
-*,*::before,*::after{box-sizing:border-box}
-html,body,#app{max-width:100%;min-width:0}
-.card,.an-form,.an-form label,form,label{min-width:0;max-width:100%}
-input,select,textarea{box-sizing:border-box;min-width:0;max-width:100%}
-input[type="date"],input[type="datetime-local"],input[type="time"],input[type="month"]{display:block;width:100%;min-width:0;max-width:100%;-webkit-appearance:none;appearance:none;font-size:16px}
-.an-form input,.an-form select,.an-form textarea,.card form input,.card form select,.card form textarea{width:100%;max-width:100%;min-width:0}
-.next-card{margin-top:14px}.next-card h3{margin-top:0}.next-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.next-stats>div{background:#faf3f0;border-radius:12px;padding:12px 4px;text-align:center;min-width:0}.next-stats strong,.next-stats small{display:block}.next-stats strong{font-size:clamp(16px,4vw,23px);overflow-wrap:anywhere}.next-stats small{font-size:11px;color:#806c66}.next-meter{height:9px;background:#f0e4e0;border-radius:20px;overflow:hidden;margin:12px 0}.next-meter span{display:block;height:100%;background:#a4857a;border-radius:20px}.next-calendar{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}.next-day{background:#faf6f4;border-radius:8px;text-align:center;padding:9px 2px;min-width:0}.next-day b,.next-day small{display:block;font-size:10px;overflow-wrap:anywhere}.next-day small{margin-top:5px;color:#8b7670}.next-today{outline:2px solid #a4857a}.next-card li{margin-bottom:9px;line-height:1.6}
-@media(max-width:450px){.next-calendar{grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}.next-day b,.next-day small{font-size:11px}.card{max-width:100%}.an-form{width:100%}}
+.next-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; margin: 12px 0; }
+.next-stats > div { min-width: 0; padding: 12px; border-radius: 14px; background: #faf6f4; }
+.next-stats strong { display: block; color: #5c4742; font-size: 19px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.next-stats small { display: block; margin-top: 4px; color: #887a75; font-size: 12px; }
+.nutrition-basis { margin: 10px 0; }
+.nutrition-basis-intro, .nutrition-basis-note { color: #81736e; font-size: 13px; }
+.nutrition-basis-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.nutrition-basis-grid > div { min-width: 0; padding: 11px; border-radius: 13px; background: #faf6f4; }
+.nutrition-basis-grid span, .nutrition-basis-grid b, .nutrition-basis-grid small { display: block; }
+.nutrition-basis-grid span, .nutrition-basis-grid small { color: #887a75; font-size: 11px; line-height: 1.5; }
+.nutrition-basis-grid b { margin: 5px 0; color: #594843; font-size: 14px; overflow-wrap: anywhere; }
+@media (max-width: 420px) {
+  .nutrition-basis-grid { grid-template-columns: 1fr; }
+}

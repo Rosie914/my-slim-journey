@@ -5,38 +5,184 @@ const n=v=>Number(v||0);
 const fmt=(v,digits=1)=>n(v).toFixed(digits);
 const weekStart=date=>{const d=new Date(`${date}T12:00:00`);d.setDate(d.getDate()-((d.getDay()+6)%7));return localDate(d)};
 const dateTime=date=>new Date(`${date}T12:00:00`).toISOString();
+const dateStart=date=>new Date(`${date}T00:00:00`).toISOString();
+const shiftDay=(date,offset)=>{const d=new Date(`${date}T12:00:00`);d.setDate(d.getDate()+offset);return localDate(d)};
+const shiftMonth=(month,offset)=>{const d=new Date(`${month}-01T12:00:00`);d.setMonth(d.getMonth()+offset);return localDate(d).slice(0,7)};
 async function rows(db,table,uid,column,from,to){let q=db.from(table).select('*').eq('user_id',uid).order(column,{ascending:false}).limit(500);if(from)q=q.gte(column,from);if(to)q=q.lt(column,to);const {data,error}=await q;if(error)throw error;return data||[]}
 export function renderAnalytics(tab){
- if(tab==='weight')return `<section class="card"><h2>體重趨勢</h2><p class="muted">記錄體重，觀察長期變化；單日波動不代表脂肪增減。</p><form id="anWeightForm" class="an-form"><label>體重（kg）<input name="weight_kg" type="number" min="25" max="250" step="0.1" required></label><label>日期<input name="logged_at" type="date" value="${localDate()}" required></label><label>備註（選填）<input name="notes" maxlength="300" placeholder="例如：起床、上完廁所後"></label><button type="submit">新增體重紀錄</button></form></section><section class="card"><div class="an-section-head"><h3>最近 30 筆紀錄</h3><span id="anWeightCount" class="muted"></span></div><div id="anWeightChart" class="an-chart-wrap"><p class="muted">讀取中…</p></div><div id="anWeightHistory"></div></section>`;
- if(tab==='activity')return `<section class="card"><h2>運動與活動</h2><p class="muted">運動熱量是估算值；沒有可靠數值時可以留白。</p><form id="anActivityForm" class="an-form"><label>活動類型<input name="activity_type" required maxlength="80" placeholder="例如：快走、飛輪、重量訓練"></label><label>日期<input name="logged_at" type="date" value="${localDate()}" required></label><label>時間（分鐘）<input name="duration_minutes" type="number" min="0" max="1440" value="30" required></label><label>消耗熱量（kcal，選填）<input name="calories_burned" type="number" min="0" step="1"></label><label>步數（選填）<input name="steps" type="number" min="0" step="1"></label><label>備註（選填）<input name="notes" maxlength="300" placeholder="例如：輕鬆強度"></label><button type="submit">儲存活動</button></form></section><section class="card"><h3>最近活動</h3><div id="anActivityStats" class="an-stats"></div><div id="anActivityHistory"></div></section>`;
+ if(tab==='weight')return `<section class="card an-activity-calendar-card"><div class="an-calendar-toolbar"><button type="button" id="anWeightPrevious" aria-label="上一個月">‹</button><button type="button" id="anWeightMonth" aria-expanded="true" aria-controls="anWeightCalendar"></button><button type="button" id="anWeightNext" aria-label="下一個月">›</button></div><div id="anWeightCalendar" class="an-calendar-grid" aria-label="選擇體重紀錄日期"></div><div class="an-calendar-footer"><span id="anWeightSelected" aria-live="polite"></span><button type="button" id="anWeightToday">回到今天</button></div><p class="muted an-calendar-legend">● 有體重紀錄</p></section><section class="card"><div class="an-section-head"><h2 id="anWeightDayTitle">當日體重</h2><details id="anWeightEditor" class="an-activity-editor"><summary>＋ 新增體重</summary><form id="anWeightForm" class="an-form an-weight-form"><label>體重（kg）<input name="weight_kg" type="number" min="25" max="250" step="0.1" required></label><label>日期<input name="logged_at" type="date" required readonly></label><label>備註（選填）<input name="notes" maxlength="300" placeholder="例如：起床、上完廁所後"></label><button type="submit">儲存體重</button><button type="button" id="anWeightCancel" class="an-secondary" hidden>取消修改</button><p id="anWeightStatus" class="muted" role="status"></p></form></details></div><div id="anWeightStats" class="an-stats an-weight-stats"></div><div id="anWeightHistory"></div></section><section class="card"><details id="anWeightTrend"><summary>查看體重折線趨勢</summary><div class="an-section-head"><h3>最近紀錄</h3><span id="anWeightCount" class="muted"></span></div><div id="anWeightChart" class="an-chart-wrap"><p class="muted">讀取中…</p></div></details><p class="muted">單日體重波動不代表脂肪增減，請搭配長期趨勢觀察。</p></section>`;
+ if(tab==='activity')return `<section class="card an-activity-calendar-card"><div class="an-calendar-toolbar"><button type="button" id="anActivityPrevious" aria-label="上一個月">‹</button><button type="button" id="anActivityMonth" aria-expanded="true" aria-controls="anActivityCalendar"></button><button type="button" id="anActivityNext" aria-label="下一個月">›</button></div><div id="anActivityMonthStats" class="an-stats an-activity-month-stats"></div><div id="anActivityCalendar" class="an-calendar-grid" aria-label="選擇運動日期"></div><div class="an-calendar-footer"><span id="anActivitySelected" aria-live="polite"></span><button type="button" id="anActivityToday">回到今天</button></div><p class="muted an-calendar-legend">● 有運動紀錄</p></section><section class="card"><div class="an-section-head"><h2 id="anActivityDayTitle">當日運動</h2><details id="anActivityEditor" class="an-activity-editor"><summary>＋ 新增運動</summary><form id="anActivityForm" class="an-form"><label>活動類型<input name="activity_type" required maxlength="80" placeholder="例如：快走、飛輪、重量訓練"></label><label>日期<input name="logged_at" type="date" required readonly></label><label>時間（分鐘）<input name="duration_minutes" type="number" min="1" max="1440" value="30" required></label><label>消耗熱量（kcal，選填）<input name="calories_burned" type="number" min="0" step="1"></label><label>步數（選填）<input name="steps" type="number" min="0" step="1"></label><label>備註（選填）<input name="notes" maxlength="300" placeholder="例如：輕鬆強度"></label><button type="submit">儲存活動</button><button type="button" id="anActivityCancel" class="an-secondary" hidden>取消修改</button><p id="anActivityStatus" class="muted" role="status"></p></form></details></div><div id="anActivityStats" class="an-stats"></div><div id="anActivityHistory"></div></section>`;
  if(tab==='reports')return `<section class="card"><h2>每週回顧</h2><label>選擇週一日期<input id="anWeekStart" type="date" value="${weekStart(localDate())}"></label><div id="anReport" class="an-report"><p class="muted">讀取中…</p></div></section>`;
  if(tab==='coach')return `<section class="card"><h2>Journey Coach</h2><p class="muted">根據你已儲存的紀錄整理趨勢，不會把單日體重或熱量當成診斷。</p><div id="anCoach" class="an-coach"><p class="muted">正在整理近期紀錄…</p></div></section>`;
  return '';
 }
 function lineChart(data){if(!data.length)return '<p class="muted">還沒有體重紀錄。</p>';const ordered=[...data].reverse(),vals=ordered.map(x=>n(x.weight_kg)),min=Math.min(...vals)-.5,max=Math.max(...vals)+.5,span=Math.max(.5,max-min);const pts=vals.map((v,i)=>`${24+i*(252/Math.max(1,vals.length-1))},${116-(v-min)/span*88}`).join(' ');return `<svg class="an-chart" viewBox="0 0 300 145" role="img" aria-label="體重變化折線圖"><line x1="24" y1="116" x2="276" y2="116"/><line x1="24" y1="20" x2="24" y2="116"/><polyline points="${pts}"/><text x="24" y="136">${esc(ordered[0].logged_at.slice(0,10))}</text><text x="276" y="136" text-anchor="end">${esc(ordered.at(-1).logged_at.slice(0,10))}</text><text x="26" y="15">${fmt(max)} kg</text><text x="26" y="108">${fmt(min)} kg</text></svg><p class="an-chart-summary">最新 ${fmt(data[0].weight_kg)} kg${data.length>1?`・較前次 ${n(data[0].weight_kg)-n(data[1].weight_kg)>0?'+':''}${fmt(n(data[0].weight_kg)-n(data[1].weight_kg))} kg`:''}</p>`}
-function historyRow(item,type){const title=type==='weight'?`${fmt(item.weight_kg)} kg`:esc(item.activity_type);const sub=type==='weight'?(item.notes||''):`${n(item.duration_minutes)} 分鐘${item.calories_burned!=null?`・${n(item.calories_burned)} kcal`:''}${item.steps!=null?`・${n(item.steps)} 步`:''}${item.notes?`・${esc(item.notes)}`:''}`;return `<div class="an-history-row"><div><b>${title}</b><small>${esc(item.logged_at.slice(0,10))}${sub?`・${esc(sub)}`:''}</small></div><button type="button" class="an-delete" data-id="${item.id}" data-kind="${type}" aria-label="刪除紀錄">刪除</button></div>`}
-export async function initAnalytics(db,uid,tab,onSaved=()=>{}){
- const bindDelete=root=>root?.querySelectorAll('.an-delete').forEach(btn=>btn.addEventListener('click',async()=>{if(!confirm('確定刪除這筆紀錄？'))return;const table=btn.dataset.kind==='weight'?'weight_logs':'activity_logs';const {error}=await db.from(table).delete().eq('id',btn.dataset.id).eq('user_id',uid);if(error)return alert(`刪除失敗：${error.message}`);await onSaved()}));
+function activityCalendar(month,selected,today,records,recordLabel='有運動紀錄'){
+ const [year,monthNumber]=month.split('-').map(Number),firstWeekday=new Date(Date.UTC(year,monthNumber-1,1)).getUTCDay(),lastDay=new Date(Date.UTC(year,monthNumber,0)).getUTCDate();
+ const weekdays=['日','一','二','三','四','五','六'].map(x=>`<span class="an-calendar-weekday">${x}</span>`).join('');
+ const blanks='<span aria-hidden="true"></span>'.repeat(firstWeekday);
+ const active=new Set(records.map(item=>localDate(item.logged_at)));
+ const days=Array.from({length:lastDay},(_,i)=>{const date=`${month}-${String(i+1).padStart(2,'0')}`,has=active.has(date);return `<button type="button" class="an-calendar-day" data-date="${date}" aria-pressed="${date===selected}" ${date===today?'aria-current="date"':''} aria-label="${date}${has?'，'+recordLabel:''}">${i+1}${has?'<i aria-hidden="true"></i>':''}</button>`}).join('');
+ return weekdays+blanks+days;
+}
+export async function initAnalytics(db,uid,tab){
  if(tab==='weight'){
-  const list=await rows(db,'weight_logs',uid,'logged_at');$('anWeightCount').textContent=`${list.length} 筆`;$('anWeightChart').innerHTML=lineChart(list);$('anWeightHistory').innerHTML=list.length?list.map(x=>historyRow(x,'weight')).join(''):'<p class="muted">尚無紀錄，新增第一筆吧。</p>';bindDelete($('anWeightHistory'));
-  $('anWeightForm').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);const {error}=await db.from('weight_logs').insert({user_id:uid,weight_kg:n(f.get('weight_kg')),logged_at:dateTime(f.get('logged_at')),notes:f.get('notes')||null});if(error)return alert(error.message);alert('體重紀錄已新增');await onSaved()};
+  const calendar=$('anWeightCalendar'),monthButton=$('anWeightMonth'),selectedLabel=$('anWeightSelected');
+  const form=$('anWeightForm'),editor=$('anWeightEditor'),history=$('anWeightHistory'),stats=$('anWeightStats'),status=$('anWeightStatus'),today=localDate();
+  let selected=today,month=today.slice(0,7),calendarOpen=true,list=[],request=0,saving=false;
+  const dateLabel=value=>`${Number(value.slice(5,7))} 月 ${Number(value.slice(8,10))} 日`;
+  function drawDay(){
+   const entries=list.filter(item=>localDate(item.logged_at)===selected);
+   stats.innerHTML=`<div><b>${entries.length}</b><small>筆紀錄</small></div><div><b>${entries.length?fmt(entries[0].weight_kg):'—'}${entries.length?' kg':''}</b><small>當日最新體重</small></div>`;
+   $('anWeightDayTitle').textContent=selected===today?'今日體重':`${dateLabel(selected)}體重`;
+   history.innerHTML=entries.length?entries.map(item=>`<div class="an-history-row"><div><b>${fmt(item.weight_kg)} kg</b><small>${item.notes?esc(item.notes):'未填備註'}</small></div><div class="an-activity-actions"><button type="button" class="an-edit-weight" data-id="${esc(item.id)}">編輯</button><button type="button" class="an-delete-weight" data-id="${esc(item.id)}">刪除</button></div></div>`).join(''):'<p class="muted">這一天還沒有體重紀錄。</p>';
+  }
+  function drawCalendar(){
+   monthButton.textContent=`${month.slice(0,4)} 年 ${Number(month.slice(5,7))} 月 ${calendarOpen?'▾':'›'}`;
+   monthButton.setAttribute('aria-expanded',String(calendarOpen));calendar.hidden=!calendarOpen;
+   $('anWeightToday').hidden=selected===today;selectedLabel.textContent=`${selected.replaceAll('-','/')} · ${selected===today?'今天':dateLabel(selected)}`;
+   if(calendarOpen)calendar.innerHTML=activityCalendar(month,selected,today,list,'有體重紀錄');
+   drawDay();
+  }
+  async function loadMonth(focusDate=null){
+   const version=++request;stats.innerHTML='<p class="muted" role="status">載入體重紀錄…</p>';history.innerHTML='';
+   try{
+    const [monthRows,trendRows]=await Promise.all([
+     rows(db,'weight_logs',uid,'logged_at',dateStart(`${month}-01`),dateStart(`${shiftMonth(month,1)}-01`)),
+     rows(db,'weight_logs',uid,'logged_at')
+    ]);
+    if(version!==request||!calendar.isConnected)return;
+    list=monthRows;$('anWeightCount').textContent=`${Math.min(trendRows.length,30)} 筆`;$('anWeightChart').innerHTML=lineChart(trendRows.slice(0,30));
+    drawCalendar();if(focusDate)calendar.querySelector(`[data-date="${focusDate}"]`)?.focus();
+   }catch(error){if(version===request&&calendar.isConnected){status.textContent=`讀取體重紀錄失敗：${error.message}`;drawCalendar()}}
+  }
+  async function selectDate(value,collapse=true,focusDate=false){
+   selected=value;form.elements.logged_at.value=selected;status.textContent='';
+   const nextMonth=value.slice(0,7);
+   if(nextMonth!==month){month=nextMonth;list=[];calendarOpen=true;await loadMonth(focusDate?value:null);return}
+   calendarOpen=collapse?false:calendarOpen;drawCalendar();
+   if(focusDate)calendar.querySelector(`[data-date="${selected}"]`)?.focus();else if(!calendarOpen)monthButton.focus();
+  }
+  function changeMonth(offset){month=shiftMonth(month,offset);list=[];if(selected.slice(0,7)!==month)selected=`${month}-01`;form.elements.logged_at.value=selected;calendarOpen=true;void loadMonth(selected)}
+  monthButton.onclick=()=>{calendarOpen=!calendarOpen;drawCalendar()};
+  $('anWeightPrevious').onclick=()=>changeMonth(-1);$('anWeightNext').onclick=()=>changeMonth(1);
+  $('anWeightToday').onclick=()=>void selectDate(today,false);
+  calendar.onclick=event=>{const day=event.target.closest('[data-date]');if(day)void selectDate(day.dataset.date,true)};
+  calendar.onkeydown=event=>{const day=event.target.closest('[data-date]');if(!day)return;const weekday=new Date(`${day.dataset.date}T00:00:00Z`).getUTCDay();const offsets={ArrowLeft:-1,ArrowRight:1,ArrowUp:-7,ArrowDown:7,Home:-weekday,End:6-weekday};if(!(event.key in offsets))return;event.preventDefault();void selectDate(shiftDay(day.dataset.date,offsets[event.key]),false,true)};
+  form.elements.logged_at.value=selected;
+  $('anWeightCancel').onclick=()=>{form.reset();delete form.dataset.editId;form.elements.logged_at.value=selected;form.querySelector('[type="submit"]').textContent='儲存體重';$('anWeightCancel').hidden=true;status.textContent='';editor.open=false};
+  form.onsubmit=async event=>{
+   event.preventDefault();if(saving)return;const f=new FormData(form),date=f.get('logged_at'),weight=n(f.get('weight_kg'));
+   const payload={user_id:uid,weight_kg:weight,logged_at:dateTime(date),notes:String(f.get('notes')||'').trim()||null};
+   saving=true;const submit=form.querySelector('[type="submit"]');submit.disabled=true;submit.textContent='儲存中…';status.textContent='正在儲存體重紀錄…';
+   try{
+    const query=form.dataset.editId?db.from('weight_logs').update(payload).eq('id',form.dataset.editId).eq('user_id',uid):db.from('weight_logs').insert(payload);
+    const {error}=await query;if(error)throw error;
+    delete form.dataset.editId;form.reset();selected=date;month=date.slice(0,7);form.elements.logged_at.value=selected;form.querySelector('[type="submit"]').textContent='儲存體重';$('anWeightCancel').hidden=true;status.textContent='體重紀錄已儲存。';await loadMonth();editor.open=false;
+   }catch(error){status.textContent=`儲存失敗：${error.message}`}
+   finally{saving=false;submit.disabled=false;if(!form.dataset.editId)submit.textContent='儲存體重'}
+  };
+  history.onclick=async event=>{
+   const edit=event.target.closest('.an-edit-weight'),remove=event.target.closest('.an-delete-weight');
+   if(edit){const item=list.find(entry=>String(entry.id)===edit.dataset.id);if(!item)return;form.dataset.editId=item.id;form.elements.weight_kg.value=item.weight_kg;form.elements.logged_at.value=selected;form.elements.notes.value=item.notes??'';form.querySelector('[type="submit"]').textContent='儲存修改';$('anWeightCancel').hidden=false;status.textContent=`正在編輯 ${fmt(item.weight_kg)} kg`;editor.open=true;form.scrollIntoView({behavior:'smooth',block:'nearest'});return}
+   if(remove){if(!confirm('確定刪除這筆體重紀錄？'))return;remove.disabled=true;try{const {error}=await db.from('weight_logs').delete().eq('id',remove.dataset.id).eq('user_id',uid);if(error)throw error;status.textContent='體重紀錄已刪除。';await loadMonth()}catch(error){status.textContent=`刪除失敗：${error.message}`}finally{remove.disabled=false}}
+  };
+  await loadMonth();
  }
  if(tab==='activity'){
-  const list=await rows(db,'activity_logs',uid,'logged_at'),totalMin=list.reduce((s,x)=>s+n(x.duration_minutes),0),totalSteps=list.reduce((s,x)=>s+n(x.steps),0);$('anActivityStats').innerHTML=`<div><b>${list.length}</b><small>次活動</small></div><div><b>${totalMin}</b><small>累積分鐘</small></div><div><b>${totalSteps.toLocaleString('zh-TW')}</b><small>紀錄步數</small></div>`;$('anActivityHistory').innerHTML=list.length?list.map(x=>historyRow(x,'activity')).join(''):'<p class="muted">尚無活動紀錄。</p>';bindDelete($('anActivityHistory'));
-  $('anActivityForm').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);const {error}=await db.from('activity_logs').insert({user_id:uid,activity_type:String(f.get('activity_type')).trim(),duration_minutes:n(f.get('duration_minutes')),calories_burned:f.get('calories_burned')?n(f.get('calories_burned')):null,steps:f.get('steps')?n(f.get('steps')):null,logged_at:dateTime(f.get('logged_at')),notes:f.get('notes')||null});if(error)return alert(error.message);alert('活動紀錄已儲存');await onSaved()};
- }
- if(tab==='reports'||tab==='coach'){
-  const render=async()=>{
-   const start=tab==='reports'?$('anWeekStart').value:weekStart(localDate());const endDate=new Date(`${start}T12:00:00`);endDate.setDate(endDate.getDate()+7);const end=localDate(endDate);
-   const [weights,activities,meals]=await Promise.all([rows(db,'weight_logs',uid,'logged_at',dateTime(start),dateTime(end)),rows(db,'activity_logs',uid,'logged_at',dateTime(start),dateTime(end)),rows(db,'meals',uid,'eaten_at',dateTime(start),dateTime(end))]);
-   const actualMeals=meals.filter(m=>m.source!=='planned');const mealIds=actualMeals.map(m=>m.id);let items=[];
-   if(mealIds.length){const {data,error}=await db.from('meal_items').select('*').eq('user_id',uid).in('meal_id',mealIds);if(error)throw error;items=data||[]}
-   const totals=items.reduce((a,x)=>({cal:a.cal+n(x.calories),p:a.p+n(x.protein_g),c:a.c+n(x.carbs_g),f:a.f+n(x.fat_g)}),{cal:0,p:0,c:0,f:0});
-   const mins=activities.reduce((s,x)=>s+n(x.duration_minutes),0),steps=activities.reduce((s,x)=>s+n(x.steps),0);
-   if(tab==='reports')$('anReport').innerHTML=`<div class="an-stats"><div><b>${actualMeals.length}</b><small>餐次</small></div><div><b>${Math.round(totals.cal)}</b><small>飲食 kcal</small></div><div><b>${mins}</b><small>活動分鐘</small></div><div><b>${weights.length}</b><small>體重紀錄</small></div></div><h3>營養紀錄合計</h3><p>蛋白質 ${fmt(totals.p)} g ・碳水 ${fmt(totals.c)} g ・脂肪 ${fmt(totals.f)} g</p><p>活動步數合計：${steps.toLocaleString('zh-TW')}</p><p class="muted">統計期間：${start} 至 ${localDate(new Date(new Date(`${end}T12:00:00`).getTime()-86400000))}。以上是紀錄合計，不等同每日平均或完整攝取量。</p>`;
-   else{const recent=await rows(db,'weight_logs',uid,'logged_at');const delta=recent.length>1?n(recent[0].weight_kg)-n(recent[1].weight_kg):null;const tips=[];tips.push(actualMeals.length?`這週已記錄 ${actualMeals.length} 餐，營養合計約 ${Math.round(totals.cal)} kcal。`:'這週還沒有飲食紀錄，可以先從完整記錄一餐開始。');tips.push(activities.length?`完成 ${activities.length} 次活動，累積 ${mins} 分鐘。`:'這週活動紀錄較少，可從舒服且可持續的散步開始。');tips.push(delta===null?'累積至少兩筆體重紀錄後，才能比較前後變化。':`最近兩筆體重相差 ${delta>0?'+':''}${fmt(delta)} kg；請觀察數週平均，不必因單次變化調整飲食。`);$('anCoach').innerHTML=`<ul>${tips.map(t=>`<li>${esc(t)}</li>`).join('')}</ul><p class="muted">Coach 目前是依資料產生的規則式摘要，並非生成式 AI、醫療診斷或營養師處方。</p>`}
+  const calendar=$('anActivityCalendar'),monthButton=$('anActivityMonth'),selectedLabel=$('anActivitySelected'),monthStats=$('anActivityMonthStats');
+  const form=$('anActivityForm'),editor=$('anActivityEditor'),history=$('anActivityHistory'),stats=$('anActivityStats');
+  const status=$('anActivityStatus'),today=localDate();
+  let selected=today,month=today.slice(0,7),calendarOpen=true,list=[],request=0,saving=false;
+  const dateLabel=value=>`${Number(value.slice(5,7))} 月 ${Number(value.slice(8,10))} 日`;
+  function drawDay(){
+   const entries=list.filter(item=>localDate(item.logged_at)===selected);
+   const minutes=entries.reduce((sum,item)=>sum+n(item.duration_minutes),0);
+   const stepValues=entries.map(item=>item.steps);
+   const steps=!entries.length?'0':stepValues.some(value=>value==null)?'部分未填':stepValues.reduce((sum,value)=>sum+n(value),0).toLocaleString('zh-TW');
+   const calorieValues=entries.map(item=>item.calories_burned);
+   const calories=!entries.length?'0':calorieValues.some(value=>value==null)?'資料不完整':String(Math.round(calorieValues.reduce((sum,value)=>sum+n(value),0)));
+   $('anActivityDayTitle').textContent=selected===today?'今日運動':`${dateLabel(selected)}運動`;
+   stats.innerHTML=`<div><b>${entries.length}</b><small>次活動</small></div><div><b>${minutes}</b><small>分鐘</small></div><div><b>${calories}${calories==='資料不完整'?'':' kcal'}</b><small>已記錄消耗</small></div><div><b>${steps}</b><small>步數</small></div>`;
+   history.innerHTML=entries.length?entries.map(item=>`<div class="an-history-row"><div><b>${esc(item.activity_type)}</b><small>${n(item.duration_minutes)} 分鐘${item.calories_burned==null?'':`・${n(item.calories_burned)} kcal`}${item.steps==null?'':`・${n(item.steps)} 步`}${item.notes?`・${esc(item.notes)}`:''}</small></div><div class="an-activity-actions"><button type="button" class="an-edit-activity" data-id="${esc(item.id)}">編輯</button><button type="button" class="an-delete-activity" data-id="${esc(item.id)}">刪除</button></div></div>`).join(''):'<p class="muted">這一天還沒有運動紀錄。</p>';
+  }
+  function drawCalendar(){
+   monthButton.textContent=`${month.slice(0,4)} 年 ${Number(month.slice(5,7))} 月 ${calendarOpen?'▾':'›'}`;
+   monthButton.setAttribute('aria-expanded',String(calendarOpen));
+   calendar.hidden=!calendarOpen;
+   const monthMinutes=list.reduce((sum,item)=>sum+n(item.duration_minutes),0);
+   const monthCalories=list.some(item=>item.calories_burned==null)?'資料不完整':String(Math.round(list.reduce((sum,item)=>sum+n(item.calories_burned),0)));
+   monthStats.innerHTML=`<div><b>${list.length}</b><small>本月活動次數</small></div><div><b>${monthMinutes}</b><small>累積分鐘</small></div><div><b>${monthCalories}${monthCalories==='資料不完整'?'':' kcal'}</b><small>已記錄消耗</small></div>`;
+   $('anActivityToday').hidden=selected===today;
+   selectedLabel.textContent=`${selected.replaceAll('-','/')} · ${selected===today?'今天':dateLabel(selected)}`;
+   if(calendarOpen)calendar.innerHTML=activityCalendar(month,selected,today,list);
+   drawDay();
+  }
+  async function loadMonth(focusDate=null){
+   const version=++request;
+   stats.innerHTML='<p class="muted" role="status">載入當日運動…</p>';
+   history.innerHTML='';
+   try{
+    list=await rows(db,'activity_logs',uid,'logged_at',dateStart(`${month}-01`),dateStart(`${shiftMonth(month,1)}-01`));
+    if(version!==request||!calendar.isConnected)return;
+    drawCalendar();
+    if(focusDate)calendar.querySelector(`[data-date="${focusDate}"]`)?.focus();
+   }catch(error){
+    if(version!==request||!calendar.isConnected)return;
+    status.textContent=`讀取運動紀錄失敗：${error.message}`;
+    drawCalendar();
+   }
+  }
+  async function selectDate(value,collapse=true,focusDate=false){
+   selected=value;
+   form.elements.logged_at.value=selected;
+   status.textContent='';
+   const nextMonth=value.slice(0,7);
+   if(nextMonth!==month){month=nextMonth;list=[];calendarOpen=true;await loadMonth(focusDate?value:null);return}
+   calendarOpen=collapse?false:calendarOpen;
+   drawCalendar();
+   if(focusDate)calendar.querySelector(`[data-date="${selected}"]`)?.focus();
+   else if(!calendarOpen)monthButton.focus();
+  }
+  function changeMonth(offset){
+   month=shiftMonth(month,offset);list=[];
+   if(selected.slice(0,7)!==month)selected=`${month}-01`;
+   form.elements.logged_at.value=selected;
+   calendarOpen=true;
+   void loadMonth(selected);
+  }
+  monthButton.onclick=()=>{calendarOpen=!calendarOpen;drawCalendar()};
+  $('anActivityPrevious').onclick=()=>changeMonth(-1);
+  $('anActivityNext').onclick=()=>changeMonth(1);
+  $('anActivityToday').onclick=()=>void selectDate(today,false);
+  calendar.onclick=event=>{const day=event.target.closest('[data-date]');if(day)void selectDate(day.dataset.date,true)};
+  calendar.onkeydown=event=>{
+   const day=event.target.closest('[data-date]');if(!day)return;
+   const weekday=new Date(`${day.dataset.date}T00:00:00Z`).getUTCDay();
+   const offsets={ArrowLeft:-1,ArrowRight:1,ArrowUp:-7,ArrowDown:7,Home:-weekday,End:6-weekday};
+   if(!(event.key in offsets))return;
+   event.preventDefault();void selectDate(shiftDay(day.dataset.date,offsets[event.key]),false,true);
   };
-  if(tab==='reports')$('anWeekStart').addEventListener('change',()=>render().catch(e=>alert(e.message)));
-  await render();
+  form.elements.logged_at.value=selected;
+  $('anActivityCancel').onclick=()=>{form.reset();delete form.dataset.editId;form.elements.logged_at.value=selected;form.querySelector('[type="submit"]').textContent='儲存活動';$('anActivityCancel').hidden=true;status.textContent='';editor.open=false};
+  form.onsubmit=async event=>{
+   event.preventDefault();if(saving)return;
+   const f=new FormData(form),date=f.get('logged_at');
+   const payload={user_id:uid,activity_type:String(f.get('activity_type')).trim(),duration_minutes:n(f.get('duration_minutes')),calories_burned:f.get('calories_burned')?n(f.get('calories_burned')):null,steps:f.get('steps')?n(f.get('steps')):null,logged_at:dateTime(date),notes:String(f.get('notes')||'').trim()||null};
+   saving=true;const submit=form.querySelector('[type="submit"]');submit.disabled=true;submit.textContent='儲存中…';status.textContent='正在儲存運動紀錄…';
+   try{
+    const query=form.dataset.editId?db.from('activity_logs').update(payload).eq('id',form.dataset.editId).eq('user_id',uid):db.from('activity_logs').insert(payload);
+    const {error}=await query;if(error)throw error;
+    delete form.dataset.editId;form.reset();selected=date;month=date.slice(0,7);form.elements.logged_at.value=selected;form.querySelector('[type="submit"]').textContent='儲存活動';$('anActivityCancel').hidden=true;status.textContent='運動紀錄已儲存。';
+    await loadMonth();editor.open=false;
+   }catch(error){status.textContent=`儲存失敗：${error.message}`}
+   finally{saving=false;submit.disabled=false;if(!form.dataset.editId)submit.textContent='儲存活動'}
+  };
+  history.onclick=async event=>{
+   const edit=event.target.closest('.an-edit-activity'),remove=event.target.closest('.an-delete-activity');
+   if(edit){const item=list.find(entry=>String(entry.id)===edit.dataset.id);if(!item)return;form.dataset.editId=item.id;form.elements.activity_type.value=item.activity_type;form.elements.logged_at.value=selected;form.elements.duration_minutes.value=item.duration_minutes??30;form.elements.calories_burned.value=item.calories_burned??'';form.elements.steps.value=item.steps??'';form.elements.notes.value=item.notes??'';form.querySelector('[type="submit"]').textContent='儲存修改';$('anActivityCancel').hidden=false;status.textContent=`正在編輯 ${item.activity_type}`;editor.open=true;form.scrollIntoView({behavior:'smooth',block:'nearest'});return}
+   if(remove){if(!confirm('確定刪除這筆運動紀錄？'))return;remove.disabled=true;try{const {error}=await db.from('activity_logs').delete().eq('id',remove.dataset.id).eq('user_id',uid);if(error)throw error;status.textContent='運動紀錄已刪除。';await loadMonth()}catch(error){status.textContent=`刪除失敗：${error.message}`}finally{remove.disabled=false}}
+  };
+  await loadMonth();
  }
 }

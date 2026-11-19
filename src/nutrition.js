@@ -43,7 +43,8 @@ export function calculateNutrition(profile, currentWeight, today = day()) {
  const observedChange = trendWeight !== null && previousWeight !== null
   ? Math.round((trendWeight - previousWeight) * 100) / 100 : null;
  const bmr = Math.round(10 * weight + 6.25 * height - 5 * age + (sex === "male" ? 5 : -161));
- const tdee = Math.round(bmr * (FACTORS[profile?.activity_level] || 1.2));
+ const activityFactor = FACTORS[profile?.activity_level] || FACTORS.sedentary;
+ const tdee = Math.round(bmr * activityFactor);
  const active = [...(profile?._stages || [])]
   .filter(stage => date(stage.target_date) !== null && stage.target_date >= today && num(stage.target_weight_kg) > 0)
   .sort((a, b) => a.target_date.localeCompare(b.target_date))[0];
@@ -96,25 +97,41 @@ export function calculateNutrition(profile, currentWeight, today = day()) {
  if (!manual && deficit > 0 && tdee - deficit < floor) warnings.push("已套用 App 的最低熱量保護。");
 
  return {
-  ready: true, age, bmr, tdee, calorieTarget, protein, carbs, fat, macroCalories,
+  ready: true, age, sex, height, bmr, tdee, calorieTarget, protein, carbs, fat, macroCalories,
   goalMode, goalLabel: ({ lose: "減脂", maintain: "維持體重", gain: "增肌" })[goalMode] || "自訂",
   activityLabel: LABELS[profile?.activity_level] || LABELS.sedentary,
   targetDate: active?.target_date ?? null, daysRemaining, currentWeight: weight, targetWeight,
   targetBodyFat: num(profile?.target_body_fat_pct), stageName: active?.stage_name ?? null,
-  weeklyChange, requiredWeekly, observedChange, energyDifference, plannedExtraActivity, plannedDeficit, trendWeight, manual, warnings
+  weeklyChange, requiredWeekly, observedChange, energyDifference, plannedExtraActivity, plannedDeficit,
+  activityFactor, rateLimit, plannedRate, appliedRate: rate, dailyIntakeDeficit: deficit,
+  calorieFloor: floor, automaticTarget, trendWeight, manual, warnings
  };
 }
 
 export function renderNutritionBasis(goal) {
  if (!goal.ready) return "";
  const trend = goal.trendWeight === null ? "最新體重或起始體重" : "最近完整 7 天平均";
- const source = goal.manual ? "手動熱量設定" : "自動估算";
- const energy = goal.energyDifference === 0 ? "與估計消耗相同"
-  : `比估計消耗${goal.energyDifference < 0 ? "少" : "多"} ${Math.abs(goal.energyDifference)} kcal`;
- const pace = goal.observedChange === null ? "" :
-  `<p>近兩段 7 天平均相差 ${goal.observedChange > 0 ? "+" : ""}${goal.observedChange.toFixed(2)} kg。</p>`;
- return `<p>${source} · 以${trend} ${goal.currentWeight.toFixed(2)} kg 計算。</p>
-  <p>每日熱量目標 <b>${goal.calorieTarget} kcal</b>，${energy}。</p><p>規劃額外運動 ${goal.plannedExtraActivity} kcal，合計計畫赤字 ${goal.plannedDeficit} kcal。</p>${pace}`;
+ const stagePace = goal.targetWeight === null || goal.daysRemaining === null
+  ? "目前沒有期限階段速度" : `依階段期限需每週約 ${goal.requiredWeekly.toFixed(2)} kg`;
+ const observed = goal.observedChange === null ? "尚無兩段完整體重週平均可比較"
+  : `近兩段 7 天平均變化 ${goal.observedChange > 0 ? "+" : ""}${goal.observedChange.toFixed(2)} kg`;
+ const targetSource = goal.manual ? "自訂攝取目標" : "公式自動攝取目標";
+ const intakeEquation = goal.manual
+  ? `自訂 ${goal.calorieTarget} kcal（公式參考值 ${goal.automaticTarget} kcal）`
+  : `${goal.tdee} − ${goal.dailyIntakeDeficit} = ${goal.calorieTarget} kcal`;
+ const exerciseEquation = `${goal.plannedExtraActivity} − (${goal.calorieTarget} − ${goal.tdee}) = ${goal.plannedDeficit} kcal`;
+ return `<div class="nutrition-basis">
+  <p class="nutrition-basis-intro">${targetSource} · 使用${trend} ${goal.currentWeight.toFixed(2)} kg。</p>
+  <div class="nutrition-basis-grid">
+   <div><span>基礎代謝 BMR</span><b>${goal.bmr} kcal</b><small>10 × ${goal.currentWeight.toFixed(2)} + 6.25 × ${goal.height} − 5 × ${goal.age} ${goal.sex === "male" ? "+ 5" : "− 161"}</small></div>
+   <div><span>日常總消耗 TDEE</span><b>${goal.tdee} kcal</b><small>${goal.bmr} × 活動係數 ${goal.activityFactor}</small></div>
+   <div><span>階段期限要求</span><b>${stagePace}</b><small>${goal.targetWeight === null ? "先設定一個階段目標" : `目標 ${goal.targetWeight} kg · ${goal.targetDate} · 剩 ${goal.daysRemaining} 天`}</small></div>
+   <div><span>計畫採用速度</span><b>每週約 ${goal.weeklyChange.toFixed(2)} kg</b><small>${goal.appliedRate.toFixed(2)} kg/週用於飲食與額外運動計畫</small></div>
+   <div><span>每日攝取目標</span><b>${goal.calorieTarget} kcal</b><small>${intakeEquation}</small></div>
+   <div><span>額外運動與計畫赤字</span><b>${goal.plannedExtraActivity} / ${goal.plannedDeficit} kcal</b><small>${exerciseEquation} · 單位皆為每日</small></div>
+  </div>
+  <p class="nutrition-basis-note">${observed}。活動係數已包含日常活動；額外運動另行列入。這是公式與規則計算，並非 AI 判斷。</p>
+ </div>`;
 }
 function bar(label,actual,target,unit){
  const a=Math.max(0,num(actual)??0),t=Math.max(0,num(target)??0);
