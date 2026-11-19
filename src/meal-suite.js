@@ -1,6 +1,6 @@
 const $ = s => document.querySelector(s);
 const esc = x => String(x ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const day = () => {const d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,10)};
+const day = () => dateFormatter.format(new Date());
 const num = x => x === '' || x == null ? null : Number(x);
 const keys=['calories','protein_g','carbs_g','fat_g','fiber_g','sugar_g','sodium_mg'];
 const names=['熱量 kcal','蛋白質 g','碳水 g','脂肪 g','纖維 g','糖 g','鈉 mg'];
@@ -9,27 +9,588 @@ const sourceLabels={ai_estimate:'AI 估算',manual:'手動輸入',favorite:'常�
 const isoDate = date => new Date(date+'T12:00:00+08:00').toISOString();
 const future = date => date > day();
 const options=(value='breakfast')=>Object.entries(types).map(([k,v])=>`<option value="${k}" ${k===value?'selected':''}>${v}</option>`).join('');
-const numericFields=(item={})=>keys.map((k,i)=>`<label>${names[i]}<input data-n="${k}" type="number" min="0" step="${k==='calories'||k==='sodium_mg'?'1':'0.1'}" value="${item[k]??''}"></label>`).join('');
-const itemForm=(item={},i=0,chooseType=false)=>`<div class="ms-item" data-original-index="${i}"><div class="ms-row"><b>食物 ${i+1}</b><button type="button" class="ms-remove ms-light">移除</button></div>${chooseType?`<label>餐別<select data-n="meal_type">${options(item.meal_type)}</select></label>`:''}<label>食物名稱<input data-n="food_name" required value="${esc(item.food_name||'')}"></label><label>份量描述<input data-n="quantity" value="${esc(item.quantity||'')}"></label><label>估計重量（g，選填）<input data-n="serving_weight_g" type="number" min="0" step="0.1" value="${item.serving_weight_g??''}"></label><div class="ms-grid">${numericFields(item)}</div><small>營養來源：${esc(sourceLabels[item.nutrition_source]||'AI 估算')}｜信心：${esc(item.confidence||'medium')}</small></div>`;
+function numericFields(item, keysToShow) {
+  return keysToShow.map(key => {
+    const index = keys.indexOf(key);
+    return `<label>${names[index]}<input data-n="${key}" type="number" min="0" step="any" value="${esc(item[key])}"></label>`;
+  }).join("");
+}
+
+function itemForm(item = {}, index = 0, chooseType = false) {
+  const source = item.nutrition_source ? sourceLabels[item.nutrition_source] : null;
+  return `<div class="ms-item" data-original-index="${index}">
+    <div class="ms-row"><b>食物</b><button type="button" class="ms-remove diary-link">移除</button></div>
+    ${chooseType ? `<label>餐別<select data-n="meal_type">${options(item.meal_type)}</select></label>` : ""}
+    <label>食物名稱<input data-n="food_name" required value="${esc(item.food_name)}"></label>
+    <label>份量（選填）<input data-n="quantity" value="${esc(item.quantity)}"></label>
+    <div class="ms-grid">${numericFields(item, keys.slice(0, 4))}</div>
+    <details><summary>更多營養欄位</summary>
+      <label>重量 g（選填）<input data-n="serving_weight_g" type="number" min="0" step="any" value="${esc(item.serving_weight_g)}"></label>
+      <div class="ms-grid">${numericFields(item, keys.slice(4))}</div>
+      ${source ? `<small>來源：${esc(source)}</small>` : ""}
+    </details>
+  </div>`;
+}
 const readItem=(el,original={})=>{const v=k=>el.querySelector(`[data-n="${k}"]`)?.value;const item={food_name:(v('food_name')||'').trim(),quantity:v('quantity')||null,serving_weight_g:num(v('serving_weight_g')),nutrition_source:original.nutrition_source||'manual',confidence:original.confidence||'medium'};for(const k of keys)item[k]=num(v(k));if(!item.food_name)throw Error('請輸入食物名稱');for(const k of [...keys,'serving_weight_g'])if(item[k]!=null&&(!Number.isFinite(item[k])||item[k]<0))throw Error('營養與重量不能是負數或無效數字');return item};
-const validateDate = date => {if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||Number.isNaN(new Date(date+'T12:00:00').getTime()))throw Error('請選擇有效日期')};
 const save=async(db,meals)=>{const {data,error}=await db.rpc('save_meals_with_items',{p_meals:meals});if(error)throw error;return data};
-export function renderMealSuite(){return `<section class="card"><h2>AI 文字記錄飲食</h2><p class="muted">描述食物、餐別與份量；AI 估算需確認後才儲存。</p><form id="msTextForm"><label>記錄日期<input name="date" type="date" value="${day()}" required></label><label>今天吃了什麼？<textarea name="text" required maxlength="2000" rows="4" placeholder="早餐兩片吐司和一杯無糖拿鐵，午餐一個肉包、一顆茶葉蛋"></textarea></label><button>AI 解析文字</button></form><p id="msTextStatus" class="muted"></p><div id="msTextPreview"></div></section><section class="card"><h2>AI 拍照辨識</h2><form id="msPhotoForm"><label>日期<input name="date" type="date" value="${day()}" required></label><label>餐別<select name="meal_type">${options()}</select></label><label>餐點照片<input name="photo" type="file" accept="image/jpeg,image/png,image/webp" required></label><button>辨識照片</button></form><p id="msPhotoStatus" class="muted"></p><div id="msPhotoPreview"></div></section><section class="card"><h2>手動新增飲食</h2><form id="msManualForm"><label>日期<input name="date" type="date" value="${day()}" required></label><label>餐別<select name="meal_type">${options()}</select></label><div id="msManualItems">${itemForm({},0)}</div><button type="button" class="ms-light" id="msManualAdd">＋ 新增食物</button><button type="submit">儲存飲食</button></form></section><section class="card"><h2>我的常吃食物</h2><form id="msFavoriteForm"><input type="hidden" name="id"><label>名稱<input name="food_name" required></label><label>品牌（選填）<input name="brand"></label><label>份量（例如一杯）<input name="serving_label"></label><label>重量 g（選填）<input name="serving_weight_g" type="number" min="0" step="0.1"></label><div class="ms-grid">${keys.map((k,i)=>`<label>${names[i]}<input name="${k}" type="number" min="0" step="0.1"></label>`).join('')}</div><button>儲存常吃食物</button><button type="button" class="ms-light" id="msFavoriteCancel">清空表單</button></form><div id="msFavoriteList"></div></section><section class="card"><div class="ms-row"><h2>飲食歷史</h2><button type="button" class="ms-light" id="msHistoryReload">更新</button></div><label>查看日期<input id="msHistoryDate" type="date" value="${day()}"></label><div id="msHistoryTotals"></div><div id="msHistoryList"></div><div id="msHistoryEditor"></div></section>`}
-export function initMealSuite(db,uid,onSaved=()=>{}){
- const status=(id,s)=>{$(id).textContent=s};
- const after=async()=>{await loadHistory();await loadFavorites();await onSaved()};
- const manual=$('#msManualForm'),manualItems=$('#msManualItems');
- $('#msManualAdd').onclick=()=>manualItems.insertAdjacentHTML('beforeend',itemForm({},manualItems.children.length));
- manualItems.onclick=e=>{if(e.target.classList.contains('ms-remove')&&manualItems.children.length>1)e.target.closest('.ms-item').remove()};
- manual.onsubmit=async e=>{e.preventDefault();const btn=manual.querySelector('[type=submit]');btn.disabled=true;try{const f=new FormData(manual),date=f.get('date');validateDate(date);const items=[...manualItems.children].map(el=>readItem(el));await save(db,[{meal_type:f.get('meal_type'),source:future(date)?'planned':'manual',eaten_at:isoDate(date),items}]);alert('飲食已儲存');manual.reset();manualItems.innerHTML=itemForm();await after()}catch(err){alert('儲存失敗：'+err.message)}finally{btn.disabled=false}};
- function confirmation(root,items,date,source,notes,mealType,photoFile=null){const original=items.map(x=>({...x,nutrition_source:x.nutrition_source||'ai_estimate',confidence:x.confidence||'medium'}));root.innerHTML=`<form class="ms-confirm"><p class="muted">日期：${esc(date)}｜${future(date)?'預計飲食（不計入實際攝取）':'實際飲食'}。AI 估算值請依營養標示或份量修正。</p><div class="ms-confirm-items">${original.map((x,i)=>itemForm(x,i,!mealType)).join('')}</div><button type="submit">確認並儲存</button><button type="button" class="ms-light ms-cancel">取消</button></form>`;const form=root.querySelector('form');form.querySelector('.ms-cancel').onclick=()=>root.innerHTML='';form.querySelector('.ms-confirm-items').onclick=e=>{if(e.target.classList.contains('ms-remove')&&form.querySelectorAll('.ms-item').length>1)e.target.closest('.ms-item').remove()};form.onsubmit=async e=>{e.preventDefault();const btn=form.querySelector('[type=submit]');btn.disabled=true;let path=null;try{const els=[...form.querySelectorAll('.ms-item')];const grouped={};els.forEach((el,i)=>{const type=mealType||el.querySelector('[data-n=meal_type]').value;(grouped[type]??=[]).push(readItem(el,original[Number(el.dataset.originalIndex)]||original[0]))});if(Object.keys(grouped).length>12)throw Error('一次最多儲存 12 種餐別');if(photoFile){path=`${uid}/${Date.now()}-${crypto.randomUUID()}.${photoFile.type.split('/')[1]}`;const up=await db.storage.from('meal-photos').upload(path,photoFile,{contentType:photoFile.type});if(up.error)throw up.error}await save(db,Object.entries(grouped).map(([type,its])=>({meal_type:type,source:future(date)?'planned':source,eaten_at:isoDate(date),notes,photo_path:path,items:its})));root.innerHTML='';path=null;alert('已儲存飲食');await after()}catch(err){if(path)await db.storage.from('meal-photos').remove([path]);alert('儲存失敗：'+err.message)}finally{btn.disabled=false}}}
- $('#msTextForm').onsubmit=async e=>{e.preventDefault();const form=e.currentTarget,btn=form.querySelector('button');btn.disabled=true;try{const f=new FormData(form),date=String(f.get('date')),text=String(f.get('text')).trim();validateDate(date);status('#msTextStatus','AI 正在解析…');const {data,error}=await db.functions.invoke('parse-meal-text',{body:{text,selectedDate:date}});if(error)throw error;if(!data?.success||!Array.isArray(data.items)||!data.items.length)throw Error(data?.error||'未辨識到食物');confirmation($('#msTextPreview'),data.items,date,'ai_text','AI 文字解析：'+text,null);status('#msTextStatus','請核對以下資料，再確認儲存')}catch(err){status('#msTextStatus','解析失敗：'+err.message)}finally{btn.disabled=false}};
- $('#msPhotoForm').onsubmit=async e=>{e.preventDefault();const form=e.currentTarget,btn=form.querySelector('button');btn.disabled=true;try{const f=new FormData(form),date=String(f.get('date')),file=f.get('photo');validateDate(date);if(!file?.size||!['image/jpeg','image/png','image/webp'].includes(file.type))throw Error('請選擇 JPG、PNG 或 WebP 照片');if(file.size>10*1024*1024)throw Error('照片不可超過 10MB');status('#msPhotoStatus','AI 正在辨識…');const base64=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=()=>reject(Error('照片讀取失敗'));reader.readAsDataURL(file)});const {data,error}=await db.functions.invoke('analyze-food',{body:{imageBase64:base64,mimeType:file.type}});if(error)throw error;const items=data?.analysis?.items;if(!Array.isArray(items)||!items.length)throw Error(data?.error||'未辨識到食物');confirmation($('#msPhotoPreview'),items,date,'ai_photo','AI 照片辨識',f.get('meal_type'),file);status('#msPhotoStatus','請核對照片辨識結果')}catch(err){status('#msPhotoStatus','辨識失敗：'+err.message)}finally{btn.disabled=false}};
- let favorites=[];const favForm=$('#msFavoriteForm');$('#msFavoriteCancel').onclick=()=>favForm.reset();
- async function loadFavorites(){const {data,error}=await db.from('user_favorite_foods').select('*').eq('user_id',uid).order('updated_at',{ascending:false}).limit(100);if(error){$('#msFavoriteList').textContent=error.message;return}favorites=data||[];$('#msFavoriteList').innerHTML=favorites.length?favorites.map(x=>`<div class="ms-row ms-fav"><span><b>${esc(x.food_name)}</b><small>${esc(x.brand||'')} ${esc(x.serving_label||'')} · ${Math.round(x.calories||0)} kcal</small></span><div><button type="button" data-action="use" data-id="${x.id}">帶入</button><button type="button" class="ms-light" data-action="edit" data-id="${x.id}">編輯</button><button type="button" class="ms-light" data-action="delete" data-id="${x.id}">刪除</button></div></div>`).join(''):'<p class="muted">還沒有常吃食物。</p>'}
- favForm.onsubmit=async e=>{e.preventDefault();const f=new FormData(favForm),id=f.get('id'),payload={user_id:uid,food_name:String(f.get('food_name')).trim(),brand:f.get('brand')||null,serving_label:f.get('serving_label')||null,serving_weight_g:num(f.get('serving_weight_g')),nutrition_source:'manual'};for(const k of keys)payload[k]=num(f.get(k));if(!payload.food_name)return alert('請輸入名稱');const query=id?db.from('user_favorite_foods').update(payload).eq('id',id).eq('user_id',uid):db.from('user_favorite_foods').insert(payload);const {error}=await query;if(error)return alert(error.message);favForm.reset();await loadFavorites()};
- $('#msFavoriteList').onclick=async e=>{const btn=e.target.closest('button[data-action]');if(!btn)return;const x=favorites.find(y=>y.id===btn.dataset.id);if(!x)return;if(btn.dataset.action==='delete'){if(!confirm('刪除這個常吃食物？'))return;const {error}=await db.from('user_favorite_foods').delete().eq('id',x.id).eq('user_id',uid);if(error)return alert(error.message);await loadFavorites()}else if(btn.dataset.action==='edit'){for(const [k,v] of Object.entries(x)){const input=favForm.elements.namedItem(k);if(input)input.value=v??''}favForm.scrollIntoView({behavior:'smooth'})}else{const item={...x,nutrition_source:'favorite',confidence:'high'};if(manualItems.children.length===1&&!manualItems.querySelector('[data-n=food_name]').value.trim())manualItems.innerHTML='';manualItems.insertAdjacentHTML('beforeend',itemForm(item,manualItems.children.length));manual.scrollIntoView({behavior:'smooth'})}};
- const historyDate=$('#msHistoryDate');$('#msHistoryReload').onclick=loadHistory;historyDate.onchange=loadHistory;
- async function loadHistory(){const date=historyDate.value;validateDate(date);const from=new Date(date+'T00:00:00+08:00').toISOString(),to=new Date(new Date(date+'T00:00:00+08:00').getTime()+86400000).toISOString();const {data,error}=await db.from('meals').select('*,meal_items(*)').eq('user_id',uid).gte('eaten_at',from).lt('eaten_at',to).order('eaten_at');if(error){$('#msHistoryList').textContent=error.message;return}const meals=data||[];const totals={};for(const k of keys)totals[k]=0;for(const m of meals)if(m.source!=='planned')for(const item of m.meal_items||[])for(const k of keys)totals[k]+=Number(item[k]||0);$('#msHistoryTotals').innerHTML=`<div class="ms-grid">${keys.map((k,i)=>`<div class="ms-stat"><b>${Math.round(totals[k]*10)/10}</b><small>${names[i]}</small></div>`).join('')}</div><p class="muted">只統計實際飲食，預計飲食另列。</p>`;$('#msHistoryList').innerHTML=meals.length?meals.map(m=>`<div class="ms-history"><div class="ms-row"><b>${esc(types[m.meal_type]||m.meal_type)} ${m.source==='planned'?'（預計）':''}</b><span>${Math.round((m.meal_items||[]).reduce((s,x)=>s+Number(x.calories||0),0))} kcal</span></div><p>${esc((m.meal_items||[]).map(x=>x.food_name).join('、'))}</p><button type="button" data-edit="${m.id}" class="ms-light">編輯</button><button type="button" data-delete="${m.id}" class="ms-light">刪除</button></div>`).join(''):'<p class="muted">這一天沒有紀錄。</p>';$('#msHistoryEditor').innerHTML='';$('#msHistoryList').onclick=async e=>{const b=e.target.closest('button');if(!b)return;const m=meals.find(x=>x.id===(b.dataset.edit||b.dataset.delete));if(!m)return;if(b.dataset.delete){if(!confirm('確定刪除這筆餐點？'))return;const {error}=await db.from('meals').delete().eq('id',m.id).eq('user_id',uid);if(error)return alert(error.message);if(m.photo_path)await db.storage.from('meal-photos').remove([m.photo_path]);await after();return}const editor=$('#msHistoryEditor');const dt=new Date(m.eaten_at),local=new Date(dt.getTime()-dt.getTimezoneOffset()*60000).toISOString().slice(0,16);editor.innerHTML=`<form id="msEditForm"><h3>編輯餐點</h3><label>餐別<select name="meal_type">${options(m.meal_type)}</select></label><label>日期時間<input type="datetime-local" name="eaten_at" required value="${local}"></label><label>備註<input name="notes" value="${esc(m.notes||'')}"></label><div id="msEditItems">${(m.meal_items||[]).map((x,i)=>itemForm(x,i)).join('')}</div><button type="button" class="ms-light" id="msEditAdd">＋ 食物</button><button>儲存修改</button><button type="button" class="ms-light" id="msEditCancel">取消</button></form>`;$('#msEditCancel').onclick=()=>editor.innerHTML='';$('#msEditAdd').onclick=()=>$('#msEditItems').insertAdjacentHTML('beforeend',itemForm({},$('#msEditItems').children.length));$('#msEditItems').onclick=e=>{if(e.target.classList.contains('ms-remove')&&$('#msEditItems').children.length>1)e.target.closest('.ms-item').remove()};$('#msEditForm').onsubmit=async ev=>{ev.preventDefault();const f=new FormData(ev.currentTarget),when=new Date(f.get('eaten_at'));if(Number.isNaN(when.getTime()))return alert('日期無效');const its=[...$('#msEditItems').children].map((el,i)=>readItem(el,(m.meal_items||[])[Number(el.dataset.originalIndex)]||{}));const date=String(f.get('eaten_at')).slice(0,10);const payload={id:m.id,meal_type:f.get('meal_type'),source:future(date)?'planned':m.source==='planned'?'manual':m.source,eaten_at:when.toISOString(),notes:f.get('notes')||null,items:its};const {error}=await db.rpc('update_meal_with_items',{p_meal:payload});if(error)return alert(error.message);await after()}}}
- loadFavorites();loadHistory();
+
+const weekdayLabels = ["日", "一", "二", "三", "四", "五", "六"];
+const dateFormatter = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit"
+});
+const timeFormatter = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", hourCycle: "h23"
+});
+const number = new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 1 });
+const methodNames = { menu: "新增飲食", text: "AI 文字記錄", photo: "AI 拍照辨識", manual: "手動輸入",
+  favorites: "常吃食物", favoriteEdit: "管理常吃食物", edit: "編輯餐點", review: "確認飲食紀錄" };
+
+function shiftDay(value, offset) {
+  const date = new Date(value + "T00:00:00Z");
+  date.setUTCDate(date.getUTCDate() + offset);
+  return date.toISOString().slice(0, 10);
+}
+
+function shiftMonth(value, offset) {
+  const date = new Date(value + "-01T00:00:00Z");
+  date.setUTCMonth(date.getUTCMonth() + offset);
+  return date.toISOString().slice(0, 7);
+}
+
+function midnight(value) {
+  return new Date(value + "T00:00:00+08:00").toISOString();
+}
+
+function visibleDate(value) {
+  const [, month, date] = value.split("-");
+  return Number(month) + " 月 " + Number(date) + " 日";
+}
+
+function calendarGrid(month, selected, today, markers) {
+  const first = month + "-01";
+  const firstWeekday = new Date(first + "T00:00:00Z").getUTCDay();
+  const last = Number(shiftDay(shiftMonth(month, 1) + "-01", -1).slice(-2));
+  const labels = weekdayLabels.map(name => `<span class="diary-weekday">${name}</span>`).join("");
+  const blanks = '<span aria-hidden="true"></span>'.repeat(firstWeekday);
+  const days = Array.from({ length: last }, (_, index) => {
+    const date = month + "-" + String(index + 1).padStart(2, "0");
+    const marker = markers.get(date);
+    const context = [date === today ? "今天" : "", marker === "actual" ? "有飲食紀錄" : marker ? "有預計餐點" : ""]
+      .filter(Boolean).join("，");
+    return `<button type="button" class="diary-day" data-date="${date}" aria-pressed="${date === selected}"
+      aria-label="${date}${context ? "，" + context : ""}" ${date === today ? 'aria-current="date"' : ""}>
+      ${index + 1}<span class="diary-date-dot ${marker || ""}" aria-hidden="true"></span></button>`;
+  }).join("");
+  return labels + blanks + days;
+}
+
+function renderDaySummary(meals, selected, goal) {
+  const planned = future(selected);
+  const items = meals.filter(meal => planned ? meal.source === "planned" : meal.source !== "planned")
+    .flatMap(meal => meal.meal_items || []);
+  const total = key => items.reduce((sum, item) => sum + (Number(item[key]) || 0), 0);
+  const compare = selected === day() && goal?.ready;
+  return `<div class="diary-totals">
+    ${keys.slice(0, 4).map((key, index) => {
+      const label = index === 0 && compare ? "目標 " + number.format(goal.calorieTarget) + " kcal" : names[index];
+      return `<div><b>${number.format(total(key))}</b><small>${label}</small></div>`;
+    }).join("")}
+  </div>`;
+}
+
+function renderMeals(meals) {
+  const groups = new Map(Object.keys(types).map(type => [type, []]));
+  for (const meal of meals) groups.get(Object.hasOwn(types, meal.meal_type) ? meal.meal_type : "other").push(meal);
+  return [...groups].map(([type, entries]) => {
+    const count = entries.reduce((sum, meal) => sum + (meal.meal_items || []).length, 0);
+    const calories = entries.flatMap(meal => meal.meal_items || [])
+      .reduce((sum, item) => sum + (Number(item.calories) || 0), 0);
+    return `<article class="diary-meal-group"><div class="diary-meal-heading">
+      <div><h3>${types[type]}</h3><small>${count ? count + " 項 · " + number.format(calories) + " kcal" : "尚無紀錄"}</small></div>
+      <button type="button" class="diary-icon" data-add-type="${type}" aria-label="新增${types[type]}">＋</button>
+    </div>
+    ${entries.length ? `<details><summary>查看明細</summary>${entries.map(meal => {
+      const items = meal.meal_items || [];
+      return `<div class="diary-entry">
+        <span>${items.map(item => esc(item.food_name)).join("、") || "餐點"}${meal.source === "planned" ? ' <small>預計</small>' : ""}</span>
+        <details class="diary-entry-menu"><summary aria-label="餐點選項">⋯</summary>
+          <button type="button" data-meal-action="edit" data-id="${esc(meal.id)}">編輯</button>
+          <button type="button" data-meal-action="copy" data-id="${esc(meal.id)}">複製到指定日期</button>
+          <button type="button" data-meal-action="delete" data-id="${esc(meal.id)}">刪除</button>
+        </details></div>`;
+    }).join("")}</details>` : ""}</article>`;
+  }).join("");
+}
+
+export function renderMealSuite() {
+  return `<main class="diary" id="mealDiary">
+    <section class="card diary-calendar">
+      <div class="diary-calendar-toolbar">
+        <button type="button" id="diaryPrevious" class="diary-icon" aria-label="上一個月">‹</button>
+        <button type="button" id="diaryCalendarToggle" class="diary-month" aria-expanded="true" aria-controls="diaryCalendarGrid"></button>
+        <button type="button" id="diaryNext" class="diary-icon" aria-label="下一個月">›</button>
+      </div>
+      <div id="diaryCalendarGrid" class="diary-calendar-grid" aria-label="選擇飲食日期"></div>
+      <div class="diary-calendar-footer"><span id="diarySelected"></span><button type="button" id="diaryToday" class="diary-link">回到今天</button></div>
+    </section>
+    <section class="card diary-overview">
+      <div class="diary-title"><h2 id="diarySummaryTitle">當日飲食</h2><button type="button" id="diaryAdd">＋ 新增飲食</button></div>
+      <p id="diaryMessage" class="diary-note" role="status" hidden></p>
+      <div id="diaryCopy" hidden></div>
+      <div id="diarySummary"></div>
+      <div id="diaryMeals"></div>
+    </section>
+    <dialog id="diaryDialog" aria-labelledby="diaryDialogTitle">
+      <div class="diary-dialog-head">
+        <div><h2 id="diaryDialogTitle"></h2><p id="diaryDialogDate" class="diary-note"></p></div>
+        <button type="button" id="diaryClose" class="diary-icon" aria-label="關閉">×</button>
+      </div>
+      <div id="diaryDialogBody"></div>
+    </dialog>
+  </main>`;
+}
+
+function addFields(entries = [], type = "breakfast") {
+  const items = entries.length ? entries : [{}];
+  return `<label>餐別<select name="meal_type">${options(type)}</select></label>
+    <div data-items>${items.map((item, index) => itemForm(item, index)).join("")}</div>
+    <button type="button" data-add-item class="diary-link">＋ 新增食物</button>`;
+}
+
+function editItemFields(form, originals) {
+  const root = form.querySelector("[data-items]");
+  form.querySelector("[data-add-item]").onclick = () => {
+    root.insertAdjacentHTML("beforeend", itemForm({}, -1));
+  };
+  root.onclick = event => {
+    if (event.target.closest(".ms-remove") && root.children.length > 1) event.target.closest(".ms-item").remove();
+  };
+  return () => [...root.children].map(element => readItem(element, originals[Number(element.dataset.originalIndex)]));
+}
+
+function favoriteFields(item={}) {
+  const field = (key, label, attrs="") => `<label>${label}<input name="${key}" value="${esc(item[key])}" ${attrs}></label>`;
+  return `${field("food_name", "名稱", "required")}${field("brand", "品牌（選填）")}
+    ${field("serving_label", "份量（選填）")}${field("serving_weight_g", "重量 g（選填）", 'type="number" min="0" step="0.1"')}
+    <div class="ms-grid">${keys.map((key, i) => field(key, names[i], 'type="number" min="0" step="0.1"')).join("")}</div>`;
+}
+
+async function mealRows(query) {
+  const rows = [];
+  for (let offset = 0; ; offset += 500) {
+    const { data, error } = await query.range(offset, offset + 499);
+    if (error) throw error;
+    rows.push(...(data || []));
+    if ((data || []).length < 500) return rows;
+  }
+}
+
+export function initMealSuite(db, uid, config = {}) {
+  const diary = $("#mealDiary");
+  if (!diary) return;
+  const get = id => diary.querySelector("#" + id);
+  const grid = get("diaryCalendarGrid");
+  const calendarToggle = get("diaryCalendarToggle");
+  const dialog = get("diaryDialog");
+  const body = get("diaryDialogBody");
+  const banner = get("diaryMessage");
+  let selected = config.selectedDate || day();
+  let month = selected.slice(0, 7);
+  let calendarOpen = true;
+  let markers = new Map(), meals = [], clipboard = null;
+  let dateRequest = 0, markerRequest = 0;
+  let busy = false;
+
+  function showMessage(message) {
+    banner.hidden = !message;
+    banner.textContent = message;
+  }
+
+  function drawCalendar() {
+    const [year, monthNumber] = month.split("-");
+    calendarToggle.textContent = calendarOpen ? `${year} 年 ${Number(monthNumber)} 月 ▾` : `${visibleDate(selected)} ▸`;
+    calendarToggle.setAttribute("aria-expanded", String(calendarOpen));
+    grid.hidden = !calendarOpen;
+    if (calendarOpen) grid.innerHTML = calendarGrid(month, selected, day(), markers);
+    get("diarySelected").textContent = visibleDate(selected) + (future(selected) ? " · 預計飲食" : "");
+  }
+
+  async function loadMarkers() {
+    const version = ++markerRequest;
+    const visibleMonth = month;
+    try {
+      const rows = await mealRows(db.from("meals").select("eaten_at,source").eq("user_id", uid)
+        .gte("eaten_at", midnight(visibleMonth + "-01")).lt("eaten_at", midnight(shiftMonth(visibleMonth, 1) + "-01"))
+        .order("eaten_at").order("id"));
+      if (version !== markerRequest || !diary.isConnected) return;
+      markers = new Map();
+      for (const row of rows) {
+        const date = dateFormatter.format(new Date(row.eaten_at));
+        if (row.source !== "planned") markers.set(date, "actual");
+        else if (!markers.has(date)) markers.set(date, "planned");
+      }
+      // Keep focus on the selected day when markers arrive.
+      const focusDate = grid.contains(document.activeElement) ? document.activeElement.dataset.date : null;
+      drawCalendar();
+      if (focusDate) grid.querySelector('[data-date="' + focusDate + '"]')?.focus();
+    } catch {
+      if (version === markerRequest && diary.isConnected) drawCalendar();
+    }
+  }
+
+  async function loadDay() {
+    const version = ++dateRequest;
+    const date = selected;
+    get("diarySummaryTitle").textContent = future(date) ? "預計飲食" : "當日飲食";
+    get("diarySummary").innerHTML = "";
+    get("diaryMeals").innerHTML = '<p class="diary-note" role="status">載入餐點中…</p>';
+    try {
+      const rows = await mealRows(db.from("meals").select("id,meal_type,source,eaten_at,notes,photo_path,meal_items(*)")
+        .eq("user_id", uid).gte("eaten_at", midnight(date)).lt("eaten_at", midnight(shiftDay(date, 1)))
+        .order("eaten_at").order("id"));
+      if (version !== dateRequest || !diary.isConnected) return;
+      meals = rows;
+      get("diaryMeals").innerHTML = renderMeals(meals);
+      get("diarySummary").innerHTML = renderDaySummary(meals, date);
+      if (date === day() && config.goal) {
+        const goal = await Promise.resolve(config.goal).catch(() => null);
+        if (version === dateRequest && diary.isConnected) get("diarySummary").innerHTML = renderDaySummary(rows, date, goal);
+      }
+    } catch {
+      if (version === dateRequest && diary.isConnected) {
+        meals = [];
+        get("diaryMeals").innerHTML = '<p class="diary-note">無法載入當日紀錄。<button type="button" class="diary-link" data-retry>重試</button></p>';
+      }
+    }
+  }
+
+  function selectDate(date) {
+    selected = date;
+    config.onDateChange?.(date);
+    const newMonth = date.slice(0, 7);
+    if (month !== newMonth) {
+      month = newMonth;
+      markers = new Map();
+      void loadMarkers();
+    }
+    showMessage("");
+    drawCalendar();
+    void loadDay();
+    drawCopy();
+  }
+
+  function moveMonth(offset) {
+    month = shiftMonth(month, offset);
+    markers = new Map();
+    calendarOpen = true;
+    drawCalendar();
+    void loadMarkers();
+  }
+
+  function refresh(message) {
+    showMessage(message);
+    void loadDay();
+    void loadMarkers();
+  }
+
+  function setBusy(value) {
+    busy = value;
+    get("diaryClose").disabled = value;
+    const submit = body.querySelector('button[type="submit"]');
+    if (submit) submit.disabled = value;
+  }
+
+  function openView(view, markup, date = selected) {
+    get("diaryDialogTitle").textContent = methodNames[view];
+    get("diaryDialogDate").textContent = visibleDate(date) + (future(date) ? " · 預計飲食" : "");
+    body.innerHTML = markup;
+    dialog.scrollTop = 0;
+    if (!dialog.open) dialog.showModal();
+    else body.querySelector("input:not([type=hidden]), textarea, button, select")?.focus();
+  }
+
+  function formStatus(message) {
+    const status = body.querySelector("[data-status]");
+    if (status) status.textContent = message;
+  }
+
+  function bindForm(action) {
+    const form = body.querySelector("form");
+    form.onsubmit = async event => {
+      event.preventDefault();
+      if (busy) return;
+      setBusy(true);
+      formStatus("");
+      try {
+        await action(new FormData(form));
+      } catch (error) {
+        formStatus(error.message || "操作失敗，請重試。");
+      } finally {
+        setBusy(false);
+      }
+    };
+    return form;
+  }
+
+  function sourceFor(date, source) {
+    return future(date) ? "planned" : source;
+  }
+
+  function openMenu(type = "") {
+    openView("menu", `<div class="diary-methods">
+      ${["text", "photo", "manual", "favorites"].map(view => `<button type="button" data-method="${view}">${methodNames[view]} <span aria-hidden="true">›</span></button>`).join("")}
+    </div>`);
+    body.querySelectorAll("[data-method]").forEach(button => {
+      button.onclick = () => {
+        const view = button.dataset.method;
+        if (view === "manual") openManual(type);
+        else if (view === "favorites") void openFavorites(type);
+        else openAI(view, type);
+      };
+    });
+  }
+
+  function openManual(type, items = []) {
+    const date = selected;
+    openView("manual", `<form>${addFields(items, type || "breakfast")}<button type="submit">儲存飲食</button><p data-status role="status"></p></form>`);
+    let read;
+    const form = bindForm(async data => {
+      await save(db, [{ meal_type: data.get("meal_type"), source: sourceFor(date, "manual"),
+        eaten_at: isoDate(date), items: read() }]);
+      dialog.close();
+      refresh("已儲存飲食。");
+    });
+    read = editItemFields(form, items);
+  }
+
+  function openAI(view, type) {
+    const date = selected;
+    const textMode = view === "text";
+    const field = textMode
+      ? '<label>吃了什麼？<textarea name="text" required maxlength="2000" rows="4" placeholder="例如：午餐一碗雞肉飯和一杯無糖茶"></textarea></label>'
+      : '<label>餐點照片<input name="photo" type="file" accept="image/jpeg,image/png,image/webp" required></label>';
+    openView(view, `<form>${textMode ? "" : `<label>餐別<select name="meal_type">${options(type || "breakfast")}</select></label>`}
+      ${field}<button type="submit">${textMode ? "解析文字" : "辨識照片"}</button><p data-status role="status"></p></form>`);
+    bindForm(async data => {
+      formStatus("AI 處理中…");
+      if (textMode) {
+        const text = String(data.get("text")).trim();
+        if (!text) throw Error("請輸入飲食內容。");
+        const { data: result, error } = await db.functions.invoke("parse-meal-text", { body: { text, selectedDate: date } });
+        if (error) throw error;
+        if (!result?.success || !result.items?.length) throw Error(result?.error || "未辨識到食物。");
+        openReview(result.items, date, "ai_text", type, null, "AI 文字解析：" + text);
+        return;
+      }
+      const file = data.get("photo");
+      if (!file?.size || !["image/jpeg", "image/png", "image/webp"].includes(file.type)) throw Error("請選擇 JPG、PNG 或 WebP 照片。");
+      if (file.size > 10 * 1024 * 1024) throw Error("照片不可超過 10 MB。");
+      const imageBase64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(",")[1]);
+        reader.onerror = () => reject(Error("照片讀取失敗。"));
+        reader.readAsDataURL(file);
+      });
+      const { data: result, error } = await db.functions.invoke("analyze-food", { body: { imageBase64, mimeType: file.type } });
+      if (error) throw error;
+      if (!result?.analysis?.items?.length) throw Error(result?.error || "未辨識到食物。");
+      openReview(result.analysis.items, date, "ai_photo", data.get("meal_type"), file, "AI 照片辨識");
+    });
+  }
+
+  function openReview(items, date, source, type, file, notes) {
+    const originals = items.map(item => ({ ...item, nutrition_source: item.nutrition_source || "ai_estimate", confidence: item.confidence || "medium" }));
+    openView("review", `<form><p class="diary-note">請核對食物、份量和營養估算。</p>
+      <div data-review-items>${originals.map((item, index) => itemForm(item, index, !type)).join("")}</div>
+      <button type="submit">確認並儲存</button><p data-status role="status"></p></form>`, date);
+    const form = bindForm(async () => {
+      const grouped = new Map();
+      for (const element of form.querySelector("[data-review-items]").children) {
+        const mealType = type || element.querySelector('[data-n="meal_type"]').value;
+        if (!grouped.has(mealType)) grouped.set(mealType, []);
+        grouped.get(mealType).push(readItem(element, originals[Number(element.dataset.originalIndex)]));
+      }
+      let path = null;
+      if (file) {
+        const key = `${uid}/${Date.now()}-${crypto.randomUUID()}.${file.type.split("/")[1]}`;
+        const { error } = await db.storage.from("meal-photos").upload(key, file, { contentType: file.type });
+        if (error) throw error;
+        path = key;
+      }
+      try {
+        await save(db, [...grouped].map(([meal_type, foods]) => ({
+          meal_type, source: sourceFor(date, source), eaten_at: isoDate(date), photo_path: path, notes, items: foods
+        })));
+      } catch (error) {
+        if (path) await db.storage.from("meal-photos").remove([path]).catch(() => {});
+        throw error;
+      }
+      dialog.close();
+      refresh("已儲存飲食。");
+    });
+    const root = form.querySelector("[data-review-items]");
+    root.onclick = event => {
+      if (event.target.closest(".ms-remove") && root.children.length > 1) event.target.closest(".ms-item").remove();
+    };
+  }
+
+  async function openFavorites(type) {
+    openView("favorites", '<p class="diary-note" role="status">載入常吃食物…</p>');
+    const view = body.firstElementChild;
+    try {
+      const { data, error } = await db.from("user_favorite_foods").select("*").eq("user_id", uid).order("updated_at", { ascending: false }).limit(100);
+      if (error) throw error;
+      if (!dialog.open || body.firstElementChild !== view) return;
+      const favorites = data || [];
+      body.innerHTML = '<div class="diary-title"><input type="search" aria-label="搜尋常吃食物" placeholder="搜尋名稱或品牌"><button type="button" data-favorite-new>＋ 新增</button></div><div data-favorite-list></div>';
+      const list = body.querySelector("[data-favorite-list]");
+      function draw(query = "") {
+        const filtered = favorites.filter(item => (item.food_name + " " + (item.brand || "")).toLocaleLowerCase().includes(query));
+        list.innerHTML = filtered.length ? filtered.map(item => `<div class="diary-entry">
+          <span>${esc(item.food_name)} <small>${esc(item.serving_label || "")}</small></span>
+          <div><button type="button" class="diary-link" data-use="${esc(item.id)}">帶入</button>
+          <button type="button" class="diary-link" data-edit="${esc(item.id)}">編輯</button></div></div>`).join("")
+          : '<p class="diary-note">沒有符合的常吃食物。</p>';
+      }
+      draw();
+      body.querySelector("input").oninput = event => draw(event.target.value.trim().toLocaleLowerCase());
+      body.querySelector("[data-favorite-new]").onclick = () => openFavoriteEditor(type);
+      list.onclick = event => {
+        const button = event.target.closest("button");
+        if (!button) return;
+        const item = favorites.find(entry => entry.id === (button.dataset.use || button.dataset.edit));
+        if (!item) return;
+        if (button.dataset.use) openManual(type, [{ ...item, quantity: item.serving_label, nutrition_source: "favorite", confidence: "high" }]);
+        else openFavoriteEditor(type, item);
+      };
+    } catch {
+      if (dialog.open && body.firstElementChild === view) view.textContent = "無法載入常吃食物，請重試。";
+    }
+  }
+
+  function openFavoriteEditor(type, item = {}) {
+    openView("favoriteEdit", `<form>${favoriteFields(item)}<button type="submit">儲存常吃食物</button>
+      ${item.id ? '<button type="button" data-delete-favorite class="diary-link">刪除這項食物</button>' : ""}
+      <p data-status role="status"></p></form>`);
+    const form = bindForm(async data => {
+      const payload = { user_id: uid, food_name: String(data.get("food_name")).trim(),
+        brand: String(data.get("brand")).trim() || null, serving_label: String(data.get("serving_label")).trim() || null,
+        serving_weight_g: num(data.get("serving_weight_g")), nutrition_source: "manual" };
+      if (!payload.food_name) throw Error("請輸入食物名稱。");
+      for (const key of keys) payload[key] = num(data.get(key));
+      const query = item.id ? db.from("user_favorite_foods").update(payload).eq("id", item.id).eq("user_id", uid)
+        : db.from("user_favorite_foods").insert(payload);
+      const { error } = await query;
+      if (error) throw error;
+      await openFavorites(type);
+    });
+    const remove = form.querySelector("[data-delete-favorite]");
+    if (remove) remove.onclick = async () => {
+      if (busy || !confirm("刪除這項常吃食物？")) return;
+      setBusy(true);
+      try {
+        const { error } = await db.from("user_favorite_foods").delete().eq("id", item.id).eq("user_id", uid);
+        if (error) throw error;
+        await openFavorites(type);
+      } catch (error) { formStatus(error.message || "刪除失敗。"); }
+      finally { setBusy(false); }
+    };
+  }
+
+  function openEdit(meal) {
+    const date = selected, originals = meal.meal_items || [];
+    const time = timeFormatter.format(new Date(meal.eaten_at));
+    openView("edit", `<form><label>時間<input name="time" type="time" value="${time}" required></label>
+      <label>備註<input name="notes" value="${esc(meal.notes)}"></label>
+      ${addFields(originals, meal.meal_type)}<button type="submit">儲存修改</button><p data-status role="status"></p></form>`, date);
+    let read;
+    const form = bindForm(async data => {
+      const chosenTime = String(data.get("time"));
+      const previousTime = timeFormatter.format(new Date(meal.eaten_at));
+      const eaten_at = chosenTime === previousTime ? meal.eaten_at : new Date(date + "T" + chosenTime + ":00+08:00").toISOString();
+      const payload = { id: meal.id, meal_type: data.get("meal_type"), source: sourceFor(date, meal.source === "planned" ? "manual" : meal.source),
+        eaten_at, notes: String(data.get("notes")).trim() || null, items: read() };
+      const { error } = await db.rpc("update_meal_with_items", { p_meal: payload });
+      if (error) throw error;
+      dialog.close();
+      refresh("已儲存餐點修改。");
+    });
+    read = editItemFields(form, originals);
+  }
+
+  function drawCopy() {
+    const host = get("diaryCopy");
+    host.hidden = !clipboard;
+    host.innerHTML = clipboard ? `<div class="diary-copy">
+      <span>已選取餐點，請在月曆選擇目的日期。</span>
+      <button type="button" data-paste>貼到 ${visibleDate(selected)}</button>
+      <button type="button" data-cancel-copy class="diary-link">取消</button></div>` : "";
+  }
+
+  get("diaryCopy").onclick = async event => {
+    if (event.target.closest("[data-cancel-copy]") && !busy) {
+      clipboard = null;
+      drawCopy();
+    }
+    const paste = event.target.closest("[data-paste]");
+    if (!paste || !clipboard || busy) return;
+    const date = selected, meal = clipboard;
+    busy = true;
+    paste.disabled = true;
+    try {
+      await save(db, [{ meal_type: meal.meal_type, source: sourceFor(date, "manual"), eaten_at: isoDate(date),
+        notes: meal.notes, items: (meal.meal_items || []).map(item => Object.fromEntries(
+          ["food_name", "quantity", "serving_weight_g", "nutrition_source", "confidence", ...keys].map(key => [key, item[key]]
+        ))) }]);
+      clipboard = null;
+      drawCopy();
+      refresh("已複製餐點。");
+    } catch (error) { showMessage(error.message || "複製失敗。"); }
+    finally { busy = false; paste.disabled = false; }
+  };
+
+  get("diaryMeals").onclick = async event => {
+    const button = event.target.closest("button");
+    if (!button || busy) return;
+    if (button.hasAttribute("data-retry")) return loadDay();
+    if (button.dataset.addType) return openMenu(button.dataset.addType);
+    const meal = meals.find(entry => entry.id === button.dataset.id);
+    if (!meal) return;
+    if (button.dataset.mealAction === "edit") return openEdit(meal);
+    if (button.dataset.mealAction === "copy") {
+      clipboard = meal;
+      calendarOpen = true;
+      drawCopy();
+      drawCalendar();
+      get("diaryCopy").scrollIntoView({ block: "nearest" });
+      return;
+    }
+    if (button.dataset.mealAction !== "delete" || !confirm("確定刪除這筆餐點？")) return;
+    busy = true;
+    button.disabled = true;
+    try {
+      const { error } = await db.from("meals").delete().eq("id", meal.id).eq("user_id", uid);
+      if (error) throw error;
+      if (meal.photo_path) await db.storage.from("meal-photos").remove([meal.photo_path]).catch(() => {});
+      refresh("已刪除餐點。");
+    } catch (error) { showMessage(error.message || "刪除失敗。"); }
+    finally { busy = false; button.disabled = false; }
+  };
+  get("diaryAdd").onclick = () => { if (!busy) openMenu(); };
+  get("diaryPrevious").onclick = () => moveMonth(-1);
+  get("diaryNext").onclick = () => moveMonth(1);
+  get("diaryToday").onclick = () => selectDate(day());
+  calendarToggle.onclick = () => { calendarOpen = !calendarOpen; drawCalendar(); };
+  grid.onclick = event => {
+    const button = event.target.closest("[data-date]");
+    if (!button) return;
+    selectDate(button.dataset.date);
+    grid.querySelector('[data-date="' + selected + '"]')?.focus();
+  };
+  get("diaryClose").onclick = () => { if (!busy) dialog.close(); };
+  dialog.oncancel = event => { if (busy) event.preventDefault(); };
+  dialog.onclose = () => { if (!dialog.open) body.replaceChildren(); };
+  drawCalendar();
+  void loadDay();
+  void loadMarkers();
 }

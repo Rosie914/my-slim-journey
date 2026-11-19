@@ -177,3 +177,49 @@ nav button.active {
   background: #f3eae6;
   color: #80635b;
 }
+
+.app-header {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 50px;
+  margin: 0 0 12px;
+  padding: 0 48px;
+}
+.app-header h1 {
+  margin: 0;
+  color: #352933;
+  font-size: 21px;
+  text-align: center;
+}
+.app-header .app-avatar, .app-header .app-back {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  color: #593b54;
+  background: #eee3eb;
+  font-weight: 700;
+  font-size: 16px;
+}
+.app-header .app-avatar { right: 0; }
+.app-header .app-back { left: 0; font-size: 27px; }
+.app-tabs { z-index: 5; max-width: 640px; margin-inline: auto; }
+.app-tabs button { display: grid; justify-items: center; gap: 4px; min-width: 0; font-size: 12px; }
+.app-tabs button svg { width: 21px; height: 21px; }
+.app-tabs button.active { color: #593b54; background: #efe5ec; }
+.app-trend-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+  margin-bottom: 14px;
+  padding: 4px;
+  border-radius: 14px;
+  background: #eee5eb;
+}
+.app-trend-tabs button { background: transparent; color: #604f5c; }
+.app-trend-tabs button[aria-pressed="true"] { color: #593b54; background: #fff; font-weight: 700; }
+.app-account p { overflow-wrap: anywhere; }

@@ -1,7 +1,6 @@
 
 import { renderAnalytics, initAnalytics } from "./analytics.js";
-import { enhanceMeals } from "./improvements.js";
-import { renderWeightInsights, renderMealInsights, renderReportInsights, renderActivityInsights } from "./insights.js";
+import { renderWeightInsights, renderReportInsights, renderActivityInsights } from "./insights.js";
 import "./insights.css";
 import "./journey-next.css";
 import { renderCoachGuidance, loadNutritionTrend } from "./journey-next.js";
@@ -21,6 +20,7 @@ const app = document.querySelector("#app");
 
 let currentUser = null;
 let currentTab = "home";
+let diarySelection = null;
 let profile = null;
 let stages = [];
 let latestWeight = null;
@@ -148,9 +148,6 @@ function showLogin() {
 }
 
 const homeStyles = `<style>
-  .home-header { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:4px 2px 16px; }
-  .home-header h1 { font-size:clamp(18px, 5.2vw, 24px); margin:0; line-height:1.2; }
-  .home-header .logout { float:none; flex:none; min-height:44px; }
   .home-dashboard { color:#493d3a; font-variant-numeric:tabular-nums; }
   .home-dashboard .card { padding:16px 18px; margin:0 0 12px; border-radius:22px; }
   .home-dashboard h2 { color:#493d3a; font-size:18px; letter-spacing:.015em; margin:0; }
@@ -423,6 +420,42 @@ function renderHome(meals, weights, date, weightTrend, recordedActivity) {
   </main>`;
 }
 
+const sectionTitles = { home: "今日", meals: "飲食日曆", activity: "運動", weight: "趨勢", reports: "趨勢", coach: "Coach", settings: "帳號與設定" };
+const tabIcons = {
+  home: '<path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M9 21v-7h6v7"/>',
+  meals: '<rect x="3" y="5" width="18" height="16" rx="3"/><path d="M7 3v4m10-4v4M3 10h18m-14 5h2m3 0h2m3 0h1"/>',
+  activity: '<path d="M3 12h5l3-7 4 14 3-7h3"/>',
+  weight: '<path d="M4 4v16h16M7 15l4-4 3 2 5-6"/>',
+  coach: '<path d="M12 3l2.1 6.9L21 12l-6.9 2.1L12 21l-2.1-6.9L3 12l6.9-2.1z"/>'
+};
+
+function renderAppShell(content) {
+  const trend = currentTab === "weight" || currentTab === "reports";
+  const name = String(profile?.display_name || currentUser.email || "").trim();
+  const initial = [...name][0]?.toUpperCase() || "帳";
+  const tab = (id, label, selected) => `<button type="button" data-tab="${id}" ${selected ? 'class="active" aria-current="page"' : ""}>
+    <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round">${tabIcons[id]}</svg>
+    <span>${label}</span></button>`;
+  const headerAction = currentTab === "settings"
+    ? '<button type="button" data-tab="home" class="app-back" aria-label="回今日">‹</button>'
+    : `<button type="button" data-tab="settings" class="app-avatar" aria-label="帳號與設定">${escapeHTML(initial)}</button>`;
+  return `<header class="app-header"><h1>${sectionTitles[currentTab] || "今日"}</h1>${headerAction}</header>
+    ${trend ? `<div class="app-trend-tabs" role="group" aria-label="趨勢分類">
+      <button type="button" data-tab="weight" aria-pressed="${currentTab === "weight"}">體重</button>
+      <button type="button" data-tab="reports" aria-pressed="${currentTab === "reports"}">週報</button>
+    </div>` : ""}
+    ${content}
+    ${currentTab === "settings" ? `<section class="card app-account"><h2>登入帳號</h2><p>${escapeHTML(currentUser.email || "")}</p>
+      <button id="logout" type="button">登出</button></section>` : ""}
+    <nav class="app-tabs" aria-label="主要導覽">
+      ${tab("home", "今日", currentTab === "home")}
+      ${tab("meals", "飲食", currentTab === "meals")}
+      ${tab("activity", "運動", currentTab === "activity")}
+      ${tab("weight", "趨勢", trend)}
+      ${tab("coach", "Coach", currentTab === "coach")}
+    </nav>`;
+}
+
 async function showApp() {
   if (!currentUser) return showLogin();
 
@@ -535,23 +568,7 @@ async function showApp() {
     `;
   }
 
-  app.innerHTML = `
-    <header class="${currentTab === "home" ? "home-header" : ""}">
-      <h1>♡ My Slim Journey</h1>
-      ${currentTab === "home" ? "" : `<p>${escapeHTML(currentUser.email)}</p>`}
-      <button id="logout" class="logout">登出</button>
-    </header>
-    ${content}
-    <nav>
-      <button data-tab="home">首頁</button>
-      <button data-tab="meals">飲食</button>
-      <button data-tab="weight">體重</button>
-      <button data-tab="activity">運動</button>
-      <button data-tab="reports">週報</button>
-      <button data-tab="coach">Coach</button>
-      <button data-tab="settings">設定</button>
-    </nav>
-  `;
+  app.innerHTML = renderAppShell(content);
 
   const analyticsTab = currentTab;
   const analyticsUser = currentUser.id;
@@ -575,15 +592,22 @@ async function showApp() {
   }
 
   document.querySelectorAll("[data-tab]").forEach(button => {
-    if (button.closest("nav")) button.classList.toggle("active", button.dataset.tab === currentTab);
     button.onclick = () => {
-      currentTab = button.dataset.tab;
+      const next = button.dataset.tab;
+      if (currentTab === next) return;
+      if (button.closest(".home-dashboard") && next === "meals") diarySelection = null;
+      currentTab = next;
+      window.scrollTo(0, 0);
       showApp();
     };
   });
 
-  document.querySelector("#logout").onclick = async () => {
-    await supabase.auth.signOut();
+  const logout = document.querySelector("#logout");
+  if (logout) logout.onclick = async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) return showMessage(error.message);
+    diarySelection = null;
+    currentTab = "home";
     currentUser = null;
     showLogin();
   };
@@ -704,18 +728,14 @@ async function showApp() {
   }
 
   if (currentTab === "meals") {
-    const mealForm = document.getElementById("msManualForm");
-    const mealWeight = latestWeight;
-    const trend = loadNutritionTrend(supabase, analyticsUser).catch(() => null);
-    const refreshMealInsights = async () => {
-      const weightTrend = await trend;
-      if (mealForm && document.contains(mealForm)) {
-        await renderMealInsights(supabase, analyticsUser, { ...nutritionProfile, _weightTrend: weightTrend }, mealWeight);
-      }
-    };
-    initMealSuite(supabase, analyticsUser, refreshMealInsights);
-    enhanceMeals();
-    refreshMealInsights().catch(console.error);
+    const mealWeight = latestWeight?.weight_kg;
+    const goal = loadNutritionTrend(supabase, analyticsUser).catch(() => null)
+      .then(weightTrend => calculateNutrition({ ...nutritionProfile, _weightTrend: weightTrend }, mealWeight));
+    initMealSuite(supabase, analyticsUser, {
+      selectedDate: diarySelection,
+      onDateChange: date => { diarySelection = date; },
+      goal
+    });
   }
 
 }
@@ -726,8 +746,17 @@ async function refresh() {
   await showApp();
 }
 
-supabase.auth.onAuthStateChange((_event, session) => {
-  currentUser = session?.user || null;
+supabase.auth.onAuthStateChange((event, session) => {
+  const nextUser = session?.user || null;
+  if (currentUser?.id && currentUser.id === nextUser?.id && (event === "TOKEN_REFRESHED" || event === "SIGNED_IN")) {
+    currentUser = nextUser;
+    return;
+  }
+  if (currentUser?.id !== nextUser?.id) {
+    diarySelection = null;
+    currentTab = "home";
+  }
+  currentUser = nextUser;
   showApp();
 });
 
