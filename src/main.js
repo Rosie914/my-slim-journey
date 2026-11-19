@@ -177,18 +177,22 @@ function showLogin() {
     </div>
   `;
 
-  document.querySelectorAll("[data-provider]").forEach(button => {
+  const providerButtons = [...document.querySelectorAll("[data-provider]")];
+  providerButtons.forEach(button => {
     button.onclick = async () => {
+      if (providerButtons.some(item => item.disabled)) return;
       const message = document.querySelector("#message");
-      button.disabled = true;
+      providerButtons.forEach(item => { item.disabled = true; });
       message.textContent = "正在開啟登入頁面…";
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: button.dataset.provider,
-        options: { redirectTo: `${window.location.origin}${window.location.pathname}` }
-      });
-      if (error) {
-        message.textContent = `無法使用此登入方式：${error.message}`;
-        button.disabled = false;
+      try {
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider: button.dataset.provider,
+          options: { redirectTo: `${window.location.origin}${window.location.pathname}` }
+        });
+        if (error) throw error;
+      } catch (error) {
+        message.textContent = `無法使用此登入方式：${error.message || "請稍後重試。"}`;
+        providerButtons.forEach(item => { item.disabled = false; });
       }
     };
   });
@@ -200,45 +204,62 @@ function showLogin() {
     submit.disabled = true;
     submit.textContent = "登入中…";
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email: form.get("email"),
-      password: form.get("password")
-    });
-
-    if (error) {
-      document.querySelector("#message").textContent = error.message;
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: form.get("email"),
+        password: form.get("password")
+      });
+      if (error) throw error;
+      await refresh();
+    } catch (error) {
+      document.querySelector("#message").textContent = error.message || "登入失敗，請檢查網路後重試。";
       submit.disabled = false;
       submit.textContent = "登入";
-    } else {
-      await refresh();
     }
   };
 
   document.querySelector("#signup").onclick = async () => {
-    const form = new FormData(
-      document.querySelector("#loginForm")
-    );
-
-    const { error } = await supabase.auth.signUp({
-      email: form.get("email"),
-      password: form.get("password")
-    });
-
-    document.querySelector("#message").textContent =
-      error ? error.message : "請到 Email 收取驗證信。";
+    const loginForm = document.querySelector("#loginForm");
+    if (!loginForm.reportValidity()) return;
+    const form = new FormData(loginForm);
+    const button = document.querySelector("#signup");
+    const message = document.querySelector("#message");
+    button.disabled = true;
+    message.textContent = "正在建立帳號…";
+    try {
+      const { error } = await supabase.auth.signUp({
+        email: form.get("email"),
+        password: form.get("password")
+      });
+      if (error) throw error;
+      message.textContent = "請到 Email 收取驗證信。";
+    } catch (error) {
+      message.textContent = error.message || "建立帳號失敗，請稍後重試。";
+    } finally {
+      button.disabled = false;
+    }
   };
 
   document.querySelector("#forgotPassword").onclick = async () => {
-    const email = document.querySelector('#loginForm [name="email"]').value.trim();
+    const emailInput = document.querySelector('#loginForm [name="email"]');
+    const email = emailInput.value.trim();
     const message = document.querySelector("#message");
-    if (!email) {
-      message.textContent = "請先輸入 Email，再點選忘記密碼。";
-      return;
+    if (!email) return message.textContent = "請先輸入 Email，再點選忘記密碼。";
+    if (!emailInput.reportValidity()) return;
+    const button = document.querySelector("#forgotPassword");
+    button.disabled = true;
+    message.textContent = "正在寄送重設信…";
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}${window.location.pathname}`
+      });
+      if (error) throw error;
+      message.textContent = "密碼重設信已寄出，請查看信箱。";
+    } catch (error) {
+      message.textContent = `無法寄送：${error.message || "請稍後重試。"}`;
+    } finally {
+      button.disabled = false;
     }
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}${window.location.pathname}`
-    });
-    message.textContent = error ? `無法寄送：${error.message}` : "密碼重設信已寄出，請查看信箱。";
   };
 }
 
