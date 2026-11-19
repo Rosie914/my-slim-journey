@@ -1,10 +1,10 @@
 
 import { renderAnalytics, initAnalytics } from "./analytics.js";
-import { enhanceMeals, enhanceReport } from "./improvements.js";
-import { renderWeightInsights, renderMealInsights, renderReportInsights } from "./insights.js";
+import { enhanceMeals } from "./improvements.js";
+import { renderWeightInsights, renderMealInsights, renderReportInsights, renderActivityInsights } from "./insights.js";
 import "./insights.css";
 import "./journey-next.css";
-import { renderWeightForecast, renderCoachGuidance } from "./journey-next.js";
+import { renderCoachGuidance } from "./journey-next.js";
 import "./analytics.css";
 import { createClient } from "@supabase/supabase-js";
 import { calculateNutrition } from "./nutrition.js";
@@ -485,20 +485,25 @@ async function showApp() {
     </nav>
   `;
 
-  if (["weight", "activity", "reports", "coach"].includes(currentTab)) {
-    initAnalytics(supabase, currentUser.id, currentTab, () => showApp())
-      .then(async () => {
-        if (currentTab === "reports") {
-          await enhanceReport(supabase, currentUser.id);
-          await renderReportInsights(supabase, currentUser.id);
-        } else if (currentTab === "coach") {
-          await renderCoachGuidance(supabase, currentUser.id, {...profile, _stages: stages}, latestWeight);
-        } else if (currentTab === "weight") {
-          await renderWeightInsights(supabase, currentUser.id, profile);
-          await renderWeightForecast(supabase, currentUser.id, profile);
-        }
-      })
-      .catch(error => alert(`載入失敗：${error.message}`));
+  const analyticsTab = currentTab;
+  const analyticsUser = currentUser.id;
+  const nutritionProfile = { ...profile, _stages: stages };
+  const analyticsTasks = {
+    weight: async () => {
+      await initAnalytics(supabase, analyticsUser, analyticsTab, showApp);
+      if (currentTab === analyticsTab) await renderWeightInsights(supabase, analyticsUser, nutritionProfile);
+    },
+    activity: async () => {
+      await initAnalytics(supabase, analyticsUser, analyticsTab, showApp);
+      if (currentTab === analyticsTab) await renderActivityInsights(supabase, analyticsUser);
+    },
+    reports: () => renderReportInsights(supabase, analyticsUser),
+    coach: () => renderCoachGuidance(supabase, analyticsUser, nutritionProfile, latestWeight)
+  };
+  if (Object.hasOwn(analyticsTasks, analyticsTab)) {
+    Promise.resolve().then(analyticsTasks[analyticsTab]).catch(error => {
+      if (currentTab === analyticsTab) alert(`載入失敗：${error.message}`);
+    });
   }
 
   document.querySelectorAll("[data-tab]").forEach(button => {
@@ -631,9 +636,9 @@ async function showApp() {
   }
 
   if (currentTab === "meals") {
-    initMealSuite(supabase, currentUser.id, () => renderMealInsights(supabase, currentUser.id, profile, latestWeight));
+    initMealSuite(supabase, currentUser.id, () => renderMealInsights(supabase, currentUser.id, nutritionProfile, latestWeight));
     enhanceMeals();
-    renderMealInsights(supabase, currentUser.id, profile, latestWeight).catch(console.error);
+    renderMealInsights(supabase, currentUser.id, nutritionProfile, latestWeight).catch(console.error);
   }
 
 }
