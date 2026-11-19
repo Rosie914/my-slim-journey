@@ -397,10 +397,28 @@ export function initMealSuite(db, uid, config = {}) {
   function openCatalog(type) {
     openView("manual", `<form><label>食物名稱<input name="query" type="search" placeholder="例如：雞蛋、豆腐，或輸入英文" required></label>
       <button type="submit">搜尋 USDA 資料庫</button></form>
-      <div data-results role="status"></div>`);
+      <div data-results role="status"></div><section data-basket hidden></section>`);
     get("diaryDialogTitle").textContent = "搜尋食物資料庫";
     const form = body.querySelector("form");
     const results = body.querySelector("[data-results]");
+    const basket = body.querySelector("[data-basket]");
+    const portions = [];
+    function drawBasket() {
+      basket.hidden = portions.length === 0;
+      basket.innerHTML = `<h3>這一餐的食材</h3>${portions.map((item, i) =>
+        `<div class="diary-entry"><span>${esc(item.food_name)} · ${esc(item.quantity)}</span>
+        <button type="button" class="diary-link" aria-label="移除 ${esc(item.food_name)}" data-remove="${i}">移除</button></div>`
+      ).join("")}<button type="button" data-review>確認 ${portions.length} 項食材與餐別</button>`;
+    }
+    basket.onclick = event => {
+      const remove = event.target.closest("[data-remove]");
+      if (remove) {
+        portions.splice(Number(remove.dataset.remove), 1);
+        drawBasket();
+      } else if (event.target.closest("[data-review]") && portions.length) {
+        openManual(type, portions.slice());
+      }
+    };
     const aliases = { 雞蛋:"egg", 蛋:"egg", 雞腿:"chicken thigh", 雞胸:"chicken breast", 白飯:"white rice cooked", 地瓜:"sweet potato", 豆腐:"tofu", 牛奶:"milk", 香蕉:"banana", 花椰菜:"broccoli", 鮭魚:"salmon", 燕麥:"oats", 吐司:"bread", 杏仁:"almonds" };
     let revision = 0;
     form.onsubmit = async event => {
@@ -417,12 +435,16 @@ export function initMealSuite(db, uid, config = {}) {
         if (!results.isConnected || request !== revision) return;
         if (!foods.length) { results.textContent = "查無結果，可改用英文名稱搜尋。"; return; }
         results.innerHTML = `<label>搜尋結果<select data-food>${foods.map((food, i) => `<option value="${i}">${esc(food.description)}</option>`).join("")}</select></label>
-          <form><label>實際食用重量（g）<input name="grams" type="number" value="100" min="0.1" step="any" required></label><button>換算並帶入餐點</button></form>`;
+          <form><label>實際食用重量（g）<input name="grams" type="number" value="100" min="0.1" step="any" required></label><button>加入這一餐</button></form>`;
         results.querySelector("form").onsubmit = e => {
           e.preventDefault();
           const food = foods[Number(results.querySelector("select").value)];
           const grams = Number(e.currentTarget.elements.grams.value);
-          openManual(type, [catalogPortion(food, grams)]);
+          if (!Number.isFinite(grams) || grams <= 0) return;
+          portions.push(catalogPortion(food, grams));
+          drawBasket();
+          results.textContent = "已加入，可繼續搜尋或確認餐點。";
+          form.elements.query.select();
         };
       } catch (error) {
         if (request === revision && results.isConnected) results.textContent = error.message || "無法查詢，請稍後重試。";
