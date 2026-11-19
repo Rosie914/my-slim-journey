@@ -151,6 +151,19 @@ function renderCoachFeedback(meals, activities, goal) {
   return `<section class="coach-feedback"><h3>本週個人化回饋</h3><ul>${notes.map(note => `<li>${safe(note)}</li>`).join("")}</ul><p class="muted">依目前階段目標及已儲存紀錄產生的規則式摘要；資料不足時不推測。</p></section>`;
 }
 
+function renderAiPlan(plan) {
+  const list = (title, items) => Array.isArray(items) && items.length
+    ? `<div><h4>${title}</h4><ul>${items.map(item => `<li>${safe(item)}</li>`).join("")}</ul></div>` : "";
+  return `<section class="coach-ai-result" aria-live="polite">
+    <h4>${safe(plan.summary)}</h4>
+    <p><b>階段速度：</b>${safe(plan.pace)}</p>
+    ${list("飲食策略", plan.foodActions)}
+    ${list("活動策略", plan.activityActions)}
+    <p><b>進度停滯時：</b>${safe(plan.plateauAdvice)}</p>
+    <p class="muted">AI 文字建議參考你的階段與近期紀錄；熱量、蛋白質和運動數值仍以 App 顯示的計算值為準。</p>
+  </section>`;
+}
+
 export async function renderCoachGuidance(db, uid, profile, weight) {
   const anchor = document.getElementById("anCoach");
   if (!anchor) return;
@@ -181,5 +194,72 @@ export async function renderCoachGuidance(db, uid, profile, weight) {
     : `<p class="muted">${safe(goal.reason || "請先補齊個人與體重資料。")}</p>`;
   anchor.innerHTML = `<h3>目前營養估算</h3>${plan}
     <h3>近 14 天體重回顧</h3>${weightSummary}
-    <h3>近 7 天飲食與活動</h3>${recordsSummary}${feedback}`;
+    <h3>近 7 天飲食與活動</h3>${recordsSummary}${feedback}
+    <section class="coach-ai">
+      <h3>AI 個人化策略</h3>
+      <p class="muted">按下產生後，會將年齡、目前體重、階段目標、近兩週體重平均、近一週飲食與活動摘要傳送至 Google Gemini。App 不會將 AI 回覆寫入資料庫；Google 的資料處理依其服務政策。</p>
+      ${goal.ready
+        ? '<button type="button" id="generateAiPlan">產生本週建議</button>'
+        : '<p class="muted">請先補齊個人資料，再產生 AI 建議。</p>'}
+      <div id="aiPlanOutput" class="coach-ai-output"></div>
+    </section>`;
+
+  const aiButton = anchor.querySelector("#generateAiPlan");
+  const aiOutput = anchor.querySelector("#aiPlanOutput");
+  if (aiButton && aiOutput) {
+    aiButton.onclick = async () => {
+      aiButton.disabled = true;
+      aiOutput.innerHTML = '<p class="muted">正在整理你的階段與紀錄……</p>';
+      try {
+        const meals = mealResult.status === "fulfilled" ? mealResult.value : [];
+        const activities = activityResult.status === "fulfilled" ? activityResult.value : [];
+        const daysWithMeals = new Set(meals.map(meal => tw(meal.eaten_at))).size;
+        const mealItems = meals.flatMap(meal => meal.meal_items || []);
+        const caloriesComplete = mealItems.length > 0 && mealItems.every(item => item.calories != null && Number.isFinite(Number(item.calories)));
+        const proteinComplete = mealItems.length > 0 && mealItems.every(item => item.protein_g != null && Number.isFinite(Number(item.protein_g)));
+        const weightTrend = weightResult.status === "fulfilled" ? weightResult.value : { recent: {}, previous: {} };
+        const context = {
+          currentWeightKg: goal.currentWeight,
+          age: goal.age,
+          stage: goal.targetWeight === null ? null : {
+            name: goal.stageName,
+            targetWeightKg: goal.targetWeight,
+            targetDate: goal.targetDate,
+            daysRemaining: goal.daysRemaining,
+            requiredWeeklyLossKg: Number(goal.requiredWeekly.toFixed(2))
+          },
+          plan: {
+            weeklyLossKg: Number(goal.weeklyChange.toFixed(2)),
+            dailyCalories: goal.calorieTarget,
+            dailyProteinG: goal.protein,
+            dailyExtraActivityKcal: goal.plannedExtraActivity,
+            maximumWeeklyLossKg: Number(goal.rateLimit.toFixed(2))
+          },
+          trend: {
+            previousAverageKg: weightTrend.previous?.average == null ? null : Number(weightTrend.previous.average.toFixed(2)),
+            previousDays: weightTrend.previous?.days || 0,
+            recentAverageKg: weightTrend.recent?.average == null ? null : Number(weightTrend.recent.average.toFixed(2)),
+            recentDays: weightTrend.recent?.days || 0
+          },
+          recentRecords: {
+            daysWithMeals,
+            averageCaloriesOnLoggedDays: caloriesComplete && daysWithMeals ? Math.round(totals(meals).calories / daysWithMeals) : null,
+            averageProteinOnLoggedDaysG: proteinComplete && daysWithMeals ? Math.round(totals(meals).protein / daysWithMeals) : null,
+            activityEntries: activities.length,
+            activityMinutes: activities.reduce((sum, item) => sum + num(item.duration_minutes), 0),
+            recordedActivityCalories: activities.length && activities.every(item => item.calories_burned != null && Number.isFinite(Number(item.calories_burned)))
+              ? Math.round(activities.reduce((sum, item) => sum + num(item.calories_burned), 0)) : null
+          }
+        };
+        const { data, error } = await db.functions.invoke("personalized-weight-plan", { body: { context } });
+        if (error) throw error;
+        if (!data?.success || !data?.plan) throw new Error(data?.error || "AI 暫時無法產生建議，請稍後再試。");
+        aiOutput.innerHTML = renderAiPlan(data.plan);
+      } catch (error) {
+        aiOutput.innerHTML = `<p class="muted">${safe(error.message || "AI 暫時無法產生建議，請稍後再試。")}</p>`;
+      } finally {
+        aiButton.disabled = false;
+      }
+    };
+  }
 }
