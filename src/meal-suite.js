@@ -90,12 +90,21 @@ function renderDaySummary(meals, selected, goal) {
     .flatMap(meal => meal.meal_items || []);
   const total = key => items.reduce((sum, item) => sum + (Number(item[key]) || 0), 0);
   const compare = selected === day() && goal?.ready;
+  const intake = total("calories");
+  const target = Number(goal?.calorieTarget);
+  const scale = Math.max(intake, target * 1.25);
   return `<div class="diary-totals">
     ${keys.slice(0, 4).map((key, index) => {
       const label = index === 0 && compare ? "目標 " + number.format(goal.calorieTarget) + " kcal" : names[index];
       return `<div><b>${number.format(total(key))}</b><small>${label}</small></div>`;
     }).join("")}
-  </div>`;
+  </div>${compare && target > 0 && Number.isFinite(target) ? `
+    <div class="diary-energy" aria-hidden="true">
+      <span style="width:${100 * Math.min(intake, target) / scale}%"></span>
+      <span class="diary-energy-extra" style="width:${100 * Math.max(0, intake - target) / scale}%"></span>
+      <i style="left:${100 * target / scale}%"></i>
+    </div>
+    <p class="diary-note">已記錄 ${number.format(100 * intake / target)}% · ${intake > target ? "超出 " + number.format(intake - target) + " kcal" : intake === target ? "剛好達到目標" : "距目標 " + number.format(target - intake) + " kcal"}</p>` : ""}`;
 }
 
 function renderMeals(meals) {
@@ -138,7 +147,8 @@ export function renderMealSuite() {
           <button type="submit">查看月份</button>
         </form>
       </details>
-      <div class="diary-calendar-footer"><span id="diarySelected"></span><button type="button" id="diaryToday" class="diary-link">回到今天</button></div>
+      <div class="diary-calendar-footer"><span id="diarySelected" aria-live="polite"></span><button type="button" id="diaryToday" class="diary-link">回到今天</button></div>
+      <p id="diaryLegend" class="diary-note">● 已記錄　<span>◇ 預計餐點</span></p>
     </section>
     <section class="card diary-overview">
       <div class="diary-title"><h2 id="diarySummaryTitle">當日飲食</h2><button type="button" id="diaryAdd">＋ 新增飲食</button></div>
@@ -218,6 +228,8 @@ export function initMealSuite(db, uid, config = {}) {
     calendarToggle.textContent = calendarOpen ? `${year} 年 ${Number(monthNumber)} 月 ▾` : `${visibleDate(selected)} ▸`;
     calendarToggle.setAttribute("aria-expanded", String(calendarOpen));
     grid.hidden = !calendarOpen;
+    get("diaryLegend").hidden = !calendarOpen;
+    get("diaryJump").hidden = !calendarOpen;
     if (calendarOpen) grid.innerHTML = calendarGrid(month, selected, day(), markers);
     get("diarySelected").textContent = visibleDate(selected) + (future(selected) ? " · 預計飲食" : "");
   }
@@ -272,6 +284,7 @@ export function initMealSuite(db, uid, config = {}) {
   }
 
   function selectDate(date) {
+    if (busy) return;
     selected = date;
     config.onDateChange?.(date);
     const newMonth = date.slice(0, 7);

@@ -19,6 +19,7 @@ const supabase = createClient(
 const app = document.querySelector("#app");
 
 let currentUser = null;
+let settingsReturnTab = "home";
 const appTabs = ["home", "meals", "activity", "weight", "reports", "coach", "settings"];
 const savedTab = localStorage.getItem("msj-current-tab");
 let currentTab = appTabs.includes(savedTab) ? savedTab : "home";
@@ -490,7 +491,7 @@ function renderAppShell(content) {
     <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round">${tabIcons[id]}</svg>
     <span>${label}</span></button>`;
   const headerAction = currentTab === "settings"
-    ? '<button type="button" data-tab="home" class="app-back" aria-label="回今日">‹</button>'
+    ? `<button type="button" data-tab="${settingsReturnTab}" class="app-back" aria-label="返回上一頁">‹</button>`
     : `<button type="button" data-tab="settings" class="app-avatar" aria-label="帳號與設定">${avatarUrl ? `<img src="${escapeHTML(avatarUrl)}" alt="">` : escapeHTML(initial)}</button>`;
   return `<header class="app-header"><h1>${sectionTitles[currentTab] || "今日"}</h1>${headerAction}</header>
     ${trend ? `<div class="app-trend-tabs" role="group" aria-label="趨勢分類">
@@ -654,6 +655,7 @@ async function showApp() {
     button.onclick = () => {
       const next = button.dataset.tab;
       if (currentTab === next) return;
+      if (next === "settings") settingsReturnTab = currentTab;
       if (button.closest(".home-dashboard") && next === "meals") diarySelection = null;
       currentTab = next;
       localStorage.setItem("msj-current-tab", next);
@@ -667,6 +669,7 @@ async function showApp() {
     const { error } = await supabase.auth.signOut();
     if (error) return showMessage(error.message);
     diarySelection = null;
+    settingsReturnTab = "home";
     currentTab = "home";
     localStorage.setItem("msj-current-tab", "home");
     currentUser = null;

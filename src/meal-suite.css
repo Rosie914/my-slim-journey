@@ -92,3 +92,9 @@
 .diary #diaryJumpForm { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .diary #diaryJumpForm label { margin: 0; }
 .diary #diaryJumpForm button { grid-column: 1 / -1; }
+.diary-energy { display: flex; position: relative; height: 12px; border-radius: 8px; background: #eee8e5; }
+.diary-energy span { background: #80667b; border-radius: 8px 0 0 8px; }
+.diary-energy .diary-energy-extra { background: #bd8290; border-radius: 0 8px 8px 0; }
+.diary-energy i { position: absolute; top: -3px; bottom: -3px; width: 2px; background: #483944; }
+.diary #diaryLegend { color: #476752; }
+.diary #diaryLegend span { color: #795672; }
