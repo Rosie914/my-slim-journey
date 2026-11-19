@@ -148,6 +148,7 @@ function renderMeals(meals) {
         <span>${items.map(item => esc(item.food_name)).join("、") || "餐點"}${meal.source === "planned" ? ' <small>預計</small>' : ""}</span>
         <details class="diary-entry-menu"><summary aria-label="餐點選項">⋯</summary>
           <button type="button" data-meal-action="edit" data-id="${esc(meal.id)}">編輯</button>
+          <button type="button" data-meal-action="favorite" data-id="${esc(meal.id)}">加入常吃食物</button>
           <button type="button" data-meal-action="copy" data-id="${esc(meal.id)}">複製到指定日期</button>
           <button type="button" data-meal-action="delete" data-id="${esc(meal.id)}">刪除</button>
         </details></div>`;
@@ -163,7 +164,7 @@ export function renderMealSuite() {
         <button type="button" id="diaryCalendarToggle" class="diary-month" aria-expanded="true" aria-controls="diaryCalendarGrid"></button>
         <button type="button" id="diaryNext" class="diary-icon" aria-label="下一個月">›</button>
       </div>
-      <div id="diaryCalendarGrid" class="diary-calendar-grid" aria-label="選擇飲食日期"></div>
+      <div id="diaryCalendarGrid" class="diary-calendar-grid" aria-label="選擇飲食日期；使用方向鍵切換日期"></div>
       <details id="diaryJump"><summary>跳到指定月份</summary>
         <form id="diaryJumpForm">
           <label>年份<input name="year" type="number" min="1900" max="9998" required></label>
@@ -203,6 +204,7 @@ export function renderMealSuite() {
 function addFields(entries = [], type = "breakfast") {
   const items = entries.length ? entries : [{}];
   return `<label>餐別<select name="meal_type">${options(type)}</select></label>
+    <label>時間<input name="meal_time" type="time" value="${timeFormatter.format(new Date())}" required></label>
     <div data-items>${items.map((item, index) => itemForm(item, index)).join("")}</div>
     <button type="button" data-add-item class="diary-link">＋ 新增食物</button>`;
 }
@@ -248,6 +250,7 @@ export function initMealSuite(db, uid, config = {}) {
   let month = selected.slice(0, 7);
   let calendarOpen = true;
   let markers = new Map(), meals = [], clipboard = null;
+  let photoPreviewUrl = null;
   let dateRequest = 0, markerRequest = 0;
   let busy = false;
 
@@ -302,7 +305,11 @@ export function initMealSuite(db, uid, config = {}) {
         .eq("user_id", uid).gte("eaten_at", midnight(date)).lt("eaten_at", midnight(shiftDay(date, 1)))
         .order("eaten_at").order("id"));
       if (version !== dateRequest || !diary.isConnected) return;
-      meals = rows;
+      meals = future(date)
+        ? rows.filter(meal => meal.source === "planned")
+        : date === day()
+          ? rows
+          : rows.filter(meal => meal.source !== "planned");
       get("diaryCopyYesterday").hidden = future(date);
       get("diaryMeals").innerHTML = renderMeals(meals);
       get("diarySummary").innerHTML = renderDaySummary(meals, date);
@@ -356,7 +363,13 @@ export function initMealSuite(db, uid, config = {}) {
     if (submit) submit.disabled = value;
   }
 
+  function clearPhotoPreview() {
+    if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
+    photoPreviewUrl = null;
+  }
+
   function openView(view, markup, date = selected) {
+    clearPhotoPreview();
     get("diaryDialogTitle").textContent = view === "history" ? "搜尋吃過的食物" : view === "copyReview" ? "確認複製餐點" : methodNames[view];
     get("diaryDialogDate").textContent = visibleDate(date) + (future(date) ? " · 預計飲食" : "");
     body.innerHTML = markup;
@@ -494,7 +507,8 @@ export function initMealSuite(db, uid, config = {}) {
       const request = ++revision;
       results.textContent = "搜尋中…";
       try {
-        const params = new URLSearchParams({ query: aliases[query] || query, dataType:"SR Legacy", pageSize:"12", api_key:"DEMO_KEY" });
+        const alias = Object.entries(aliases).find(([name]) => query.includes(name))?.[1];
+        const params = new URLSearchParams({ query: alias || query, dataType:"SR Legacy", pageSize:"12", api_key:"DEMO_KEY" });
         const response = await fetch("https://api.nal.usda.gov/fdc/v1/foods/search?" + params, {referrerPolicy:"no-referrer"});
         if (!response.ok) throw Error(response.status === 429 ? "查詢已達上限，請稍後再試。" : "資料庫目前無法連線。");
         const { foods = [] } = await response.json();
@@ -571,7 +585,7 @@ export function initMealSuite(db, uid, config = {}) {
     let read;
     const form = bindForm(async data => {
       await save(db, [{ meal_type: data.get("meal_type"), source: sourceFor(date, "manual"),
-        eaten_at: isoDate(date), items: read() }]);
+        eaten_at: new Date(date + "T" + data.get("meal_time") + ":00+08:00").toISOString(), items: read() }]);
       dialog.close();
       refresh("已儲存飲食。");
     });
@@ -581,7 +595,7 @@ export function initMealSuite(db, uid, config = {}) {
       const rows = [...form.querySelectorAll(".ms-item")];
       const values = rows.map(row => Object.fromEntries(keys.map(key => [key, num(row.querySelector(`[data-n="${key}"]`)?.value)])));
       const sum = key => values.some(row => row[key] == null) ? "資料不完整" : number.format(values.reduce((total, row) => total + row[key], 0));
-      preview.textContent = `${date} · ${types[form.elements.meal_type?.value] || types.other} · 熱量 ${sum("calories")} kcal · 蛋白質 ${sum("protein_g")} g`;
+      preview.textContent = `${date} ${form.elements.meal_time.value} · ${types[form.elements.meal_type?.value] || types.other} · 熱量 ${sum("calories")} kcal · 蛋白質 ${sum("protein_g")} g`;
     };
     form.addEventListener("input", updatePreview);
     form.addEventListener("change", updatePreview);
@@ -591,12 +605,14 @@ export function initMealSuite(db, uid, config = {}) {
   function openAI(view, type) {
     const date = selected;
     const textMode = view === "text";
+    const defaultTime = timeFormatter.format(new Date());
     const field = textMode
       ? '<label>吃了什麼？<textarea name="text" required maxlength="2000" rows="4" placeholder="例如：午餐一碗雞肉飯和一杯無糖茶"></textarea></label>'
-      : '<label>餐點照片<input name="photo" type="file" accept="image/jpeg,image/png,image/webp" required></label>';
-    openView(view, `<form>${textMode ? "" : `<label>餐別<select name="meal_type">${options(type || "breakfast")}</select></label>`}
+      : '<label>餐點照片<input name="photo" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" required><small class="diary-note">支援 JPG、PNG、WebP，檔案上限 10 MB。</small></label><div data-photo-preview class="diary-photo-preview" aria-live="polite" hidden></div>';
+    openView(view, `<form><label>餐別<select name="meal_type">${options(type || "breakfast")}</select></label>
+      <label>用餐時間<input name="meal_time" type="time" value="${defaultTime}" required></label>
       ${field}<button type="submit">${textMode ? "解析文字" : "辨識照片"}</button><p data-status role="status"></p></form>`);
-    bindForm(async data => {
+    const form = bindForm(async data => {
       formStatus("AI 處理中…");
       if (textMode) {
         const text = String(data.get("text")).trim();
@@ -604,7 +620,7 @@ export function initMealSuite(db, uid, config = {}) {
         const { data: result, error } = await db.functions.invoke("parse-meal-text", { body: { text, selectedDate: date } });
         if (error) throw error;
         if (!result?.success || !result.items?.length) throw Error(result?.error || "未辨識到食物。");
-        openReview(result.items, date, "ai_text", type, null, "AI 文字解析：" + text);
+        openReview(result.items, date, "ai_text", data.get("meal_type"), null, "AI 文字解析：" + text, data.get("meal_time"));
         return;
       }
       const file = data.get("photo");
@@ -619,16 +635,57 @@ export function initMealSuite(db, uid, config = {}) {
       const { data: result, error } = await db.functions.invoke("analyze-food", { body: { imageBase64, mimeType: file.type } });
       if (error) throw error;
       if (!result?.analysis?.items?.length) throw Error(result?.error || "未辨識到食物。");
-      openReview(result.analysis.items, date, "ai_photo", data.get("meal_type"), file, "AI 照片辨識");
+      openReview(result.analysis.items, date, "ai_photo", data.get("meal_type"), file, "AI 照片辨識", data.get("meal_time"));
     });
+    if (!textMode) {
+      const input = form.elements.photo;
+      const preview = body.querySelector("[data-photo-preview]");
+      input.onchange = () => {
+        clearPhotoPreview();
+        const file = input.files?.[0];
+        preview.hidden = !file;
+        if (!file) { preview.replaceChildren(); formStatus(""); return; }
+        if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+          preview.textContent = "檔案格式不支援，請選擇 JPG、PNG 或 WebP。";
+          formStatus("請改選 JPG、PNG 或 WebP 照片。");
+          return;
+        }
+        photoPreviewUrl = URL.createObjectURL(file);
+        const image = document.createElement("img");
+        image.src = photoPreviewUrl;
+        image.alt = "所選餐點照片預覽";
+        const caption = document.createElement("small");
+        caption.textContent = `${file.name} · ${(file.size / 1024 / 1024).toFixed(1)} MB`;
+        preview.replaceChildren(image, caption);
+        if (file.size > 10 * 1024 * 1024) {
+          formStatus("照片超過 10 MB，請選較小的照片。");
+        } else formStatus("");
+      };
+    }
   }
 
-  function openReview(items, date, source, type, file, notes) {
+  function openReview(items, date, source, type, file, notes, mealTime = timeFormatter.format(new Date())) {
     const originals = items.map(item => ({ ...item, nutrition_source: item.nutrition_source || "ai_estimate", confidence: item.confidence || "medium" }));
     openView("review", `<form><p class="diary-note">請核對食物、份量和營養估算。</p>
       <div data-review-items>${originals.map((item, index) => itemForm(item, index, !type)).join("")}</div>
+      <p data-review-summary class="diary-note" aria-live="polite"></p>
       <button type="submit">確認並儲存</button><p data-status role="status"></p></form>`, date);
-    const form = bindForm(async () => {
+    const form = body.querySelector("form");
+    const preview = form.querySelector("[data-review-summary]");
+    const updateReviewSummary = () => {
+      const rows = [...form.querySelector("[data-review-items]").children];
+      const totals = Object.fromEntries(["calories", "protein_g"].map(key => {
+        const values = rows.map(row => num(row.querySelector(`[data-n="${key}"]`)?.value));
+        return [key, values.some(value => value == null) ? null : values.reduce((sum, value) => sum + value, 0)];
+      }));
+      const mealTypes = new Set(rows.map(row => type || row.querySelector('[data-n="meal_type"]').value));
+      const mealLabel = mealTypes.size === 1 ? types[[...mealTypes][0]] : `共 ${mealTypes.size} 個餐別`;
+      preview.textContent = `${date} ${mealTime} · ${mealLabel} · 熱量 ${totals.calories == null ? "資料不完整" : number.format(totals.calories) + " kcal"} · 蛋白質 ${totals.protein_g == null ? "資料不完整" : number.format(totals.protein_g) + " g"}`;
+    };
+    form.addEventListener("input", updateReviewSummary);
+    form.addEventListener("change", updateReviewSummary);
+    updateReviewSummary();
+    bindForm(async () => {
       const grouped = new Map();
       for (const element of form.querySelector("[data-review-items]").children) {
         const mealType = type || element.querySelector('[data-n="meal_type"]').value;
@@ -644,7 +701,7 @@ export function initMealSuite(db, uid, config = {}) {
       }
       try {
         await save(db, [...grouped].map(([meal_type, foods]) => ({
-          meal_type, source: sourceFor(date, source), eaten_at: isoDate(date), photo_path: path, notes, items: foods
+          meal_type, source: sourceFor(date, source), eaten_at: new Date(date + "T" + mealTime + ":00+08:00").toISOString(), photo_path: path, notes, items: foods
         })));
       } catch (error) {
         if (path) await db.storage.from("meal-photos").remove([path]).catch(() => {});
@@ -656,6 +713,7 @@ export function initMealSuite(db, uid, config = {}) {
     const root = form.querySelector("[data-review-items]");
     root.onclick = event => {
       if (event.target.closest(".ms-remove") && root.children.length > 1) event.target.closest(".ms-item").remove();
+      updateReviewSummary();
     };
   }
 
@@ -855,6 +913,35 @@ export function initMealSuite(db, uid, config = {}) {
     const meal = meals.find(entry => entry.id === button.dataset.id);
     if (!meal) return;
     if (button.dataset.mealAction === "edit") return openEdit(meal);
+    if (button.dataset.mealAction === "favorite") {
+      const items = (meal.meal_items || []).filter(item => item.food_name?.trim());
+      if (!items.length) return showMessage("這筆餐點沒有可收藏的食物。");
+      busy = true;
+      button.disabled = true;
+      try {
+        const { data: existing, error: lookupError } = await db.from("user_favorite_foods")
+          .select("food_name").eq("user_id", uid);
+        if (lookupError) throw lookupError;
+        const names = new Set((existing || []).map(item => item.food_name.trim().toLocaleLowerCase()));
+        const fresh = items.filter(item => !names.has(item.food_name.trim().toLocaleLowerCase()));
+        if (!fresh.length) return showMessage("餐點中的食物都已收藏。");
+        const payload = fresh.map(item => ({
+          user_id: uid, food_name: item.food_name.trim(),
+          serving_label: item.quantity || null, serving_weight_g: item.serving_weight_g ?? null,
+          nutrition_source: item.nutrition_source || "manual",
+          ...Object.fromEntries(keys.map(key => [key, item[key] ?? null]))
+        }));
+        const { error } = await db.from("user_favorite_foods").insert(payload);
+        if (error) throw error;
+        showMessage(`已將 ${fresh.length} 項食物加入常吃清單。`);
+      } catch (error) {
+        showMessage(error.message || "收藏失敗，請稍後重試。");
+      } finally {
+        busy = false;
+        button.disabled = false;
+      }
+      return;
+    }
     if (button.dataset.mealAction === "copy") {
       clipboard = meal;
       calendarOpen = true;
@@ -908,9 +995,21 @@ export function initMealSuite(db, uid, config = {}) {
     selectDate(button.dataset.date);
     grid.querySelector('[data-date="' + selected + '"]')?.focus();
   };
+  grid.onkeydown = event => {
+    const button = event.target.closest("[data-date]");
+    if (!button || busy) return;
+    const date = button.dataset.date;
+    const weekday = new Date(date + "T00:00:00Z").getUTCDay();
+    const offsets = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7,
+      Home: -weekday, End: 6 - weekday };
+    if (!(event.key in offsets)) return;
+    event.preventDefault();
+    selectDate(shiftDay(date, offsets[event.key]));
+    grid.querySelector('[data-date="' + selected + '"]')?.focus();
+  };
   get("diaryClose").onclick = () => { if (!busy) dialog.close(); };
   dialog.oncancel = event => { if (busy) event.preventDefault(); };
-  dialog.onclose = () => { if (!dialog.open) body.replaceChildren(); };
+  dialog.onclose = () => { if (!dialog.open) { clearPhotoPreview(); body.replaceChildren(); } };
   drawCalendar();
   void loadDay();
   void loadMarkers();

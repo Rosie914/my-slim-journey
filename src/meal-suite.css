@@ -98,3 +98,5 @@
 .diary-energy i { position: absolute; top: -3px; bottom: -3px; width: 2px; background: #483944; }
 .diary #diaryLegend { color: #476752; }
 .diary #diaryLegend span { color: #795672; }
+.diary-photo-preview { display: grid; justify-items: start; gap: 5px; margin: 8px 0 12px; color: #746471; font-size: 12px; }
+.diary-photo-preview img { display: block; width: min(100%, 300px); max-height: 230px; object-fit: cover; border-radius: 14px; background: #f5efed; }
