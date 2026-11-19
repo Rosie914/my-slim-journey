@@ -1,13 +1,13 @@
 
 import { renderAnalytics, initAnalytics } from "./analytics.js";
-import { enhanceHome, enhanceMeals, enhanceReport } from "./improvements.js";
+import { enhanceMeals, enhanceReport } from "./improvements.js";
 import { renderWeightInsights, renderMealInsights, renderReportInsights } from "./insights.js";
 import "./insights.css";
 import "./journey-next.css";
-import { renderDailyBudget, renderWeightForecast, renderCoachGuidance } from "./journey-next.js";
+import { renderWeightForecast, renderCoachGuidance } from "./journey-next.js";
 import "./analytics.css";
 import { createClient } from "@supabase/supabase-js";
-import { renderNutritionSummary } from "./nutrition.js";
+import { calculateNutrition } from "./nutrition.js";
 import { renderMealSuite, initMealSuite } from "./meal-suite.js";
 import "./meal-suite.css";
 import "./style.css";
@@ -147,69 +147,214 @@ function showLogin() {
   };
 }
 
-function renderHome(totals) {
-  // Use the latest recorded weight, or the saved starting weight if no log exists.
-  const recordedWeight = Number(latestWeight?.weight_kg);
-  const startingWeight = Number(profile?.start_weight_kg);
-  const current = Number.isFinite(recordedWeight) && recordedWeight > 0
-    ? recordedWeight
-    : Number.isFinite(startingWeight) && startingWeight > 0
-      ? startingWeight
-      : null;
-  const usingStartingWeight = !(Number.isFinite(recordedWeight) && recordedWeight > 0);
+const homeStyles = `<style>
+  .home-header { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:4px 2px 16px; }
+  .home-header h1 { font-size:clamp(18px, 5.2vw, 24px); margin:0; line-height:1.2; }
+  .home-header .logout { float:none; flex:none; min-height:44px; }
+  .home-dashboard { color:#493d3a; font-variant-numeric:tabular-nums; }
+  .home-dashboard .card { padding:16px 18px; margin:0 0 12px; border-radius:22px; }
+  .home-dashboard h2 { color:#493d3a; font-size:18px; letter-spacing:.015em; margin:0; }
+  .home-row { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .home-note { color:#766762; font-size:13px; line-height:1.45; }
+  .home-energy { align-items:flex-end; margin:13px 0 9px; }
+  .home-energy-side { text-align:right; }
+  .home-energy-side b { display:block; margin-top:4px; font-size:15px; }
+  .home-number { color:#755751; font-size:38px; font-weight:750; letter-spacing:-.045em; line-height:1.12; }
+  .home-number small { font-size:14px; letter-spacing:0; color:#766762; font-weight:600; }
+  .home-meter { height:8px; background:#f1ebe8; border-radius:20px; overflow:hidden; }
+  .home-meter span { display:block; height:100%; background:#b88691; border-radius:inherit; }
+  .home-meter.sage span { background:#7e9e89; }
+  .home-meter.lavender span { background:#a399bb; }
+  .home-macros { display:grid; gap:10px; margin-top:15px; }
+  .home-macro .home-row { margin-bottom:5px; font-size:13px; }
+  .home-macro .home-meter { height:6px; }
+  .home-details { border-top:1px solid #eee6e2; margin-top:15px; color:#766762; font-size:13px; }
+  .home-details summary { cursor:pointer; padding-top:10px; }
+  .home-dashboard dl { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:12px 0 0; }
+  .home-dashboard dt { font-size:12px; color:#766762; }
+  .home-dashboard dd { font-weight:700; margin:4px 0 0; }
+  .home-stage { border-top:1px solid #eee6e2; padding-top:11px; }
+  .home-dashboard .home-link { min-height:40px; padding:7px 9px; color:#765651; background:#f7efed; font-size:12px; white-space:nowrap; }
+  .home-trend { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:4px; text-align:center; }
+  .home-day b, .home-day small { display:block; font-size:11px; }
+  .home-day small { color:#766762; }
+  .home-column { display:flex; align-items:flex-end; justify-content:center; height:46px; margin:4px 0; border-bottom:1px solid #eee6e2; }
+  .home-column span { width:65%; max-width:24px; background:#a399bb; border-radius:5px 5px 0 0; }
+  .home-meals { margin:8px 0 0; padding:0; list-style:none; }
+  .home-meals li { border-top:1px solid #eee6e2; padding:10px 0; font-size:14px; }
+  .home-meals li > b { white-space:nowrap; }
+  .home-meals p { color:#766762; font-size:12px; margin:3px 0 0; overflow-wrap:anywhere; }
+  .home-meals p:empty { display:none; }
+  .home-dashboard .home-coach { background:#f2edf5; }
+  .home-coach p { margin:6px 0 0; }
+</style>`;
 
-  const target = stages.length ? Number([...stages].sort((a,b)=>a.target_date.localeCompare(b.target_date)).at(-1).target_weight_kg) : null;
+const homeDate = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit"
+});
+const homeNumber = new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 1 });
+const mealLabels = { breakfast: "早餐", lunch: "午餐", dinner: "晚餐", snack: "點心", other: "其他" };
 
-  const activeStage = [...stages].filter(stage => stage.target_date >= today()).sort((a,b)=>a.target_date.localeCompare(b.target_date))[0];
+function shiftHomeDate(date, days) {
+  return new Date(Date.parse(date + "T00:00:00Z") + days * 86400000).toISOString().slice(0, 10);
+}
 
-  const stageTarget = activeStage
-    ? Number(activeStage.target_weight_kg)
-    : target;
+async function loadHomeMeals(userId, date) {
+  const start = new Date(date + "T00:00:00+08:00");
+  const end = new Date(shiftHomeDate(date, 1) + "T00:00:00+08:00");
+  const meals = [];
+  const pageSize = 500;
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabase.from("meals")
+      .select("meal_type,source,meal_items(food_name,calories,protein_g,carbs_g,fat_g)")
+      .eq("user_id", userId).gte("eaten_at", start.toISOString()).lt("eaten_at", end.toISOString())
+      .order("id").range(offset, offset + pageSize - 1);
+    if (error) throw error;
+    meals.push(...data.filter(meal => meal.source !== "planned"));
+    if (data.length < pageSize) return meals;
+  }
+}
 
-  const remaining = current !== null && stageTarget !== null
-    ? Math.max(0, current - stageTarget)
-    : null;
+async function loadHomeWeights(userId, date) {
+  const start = new Date(shiftHomeDate(date, -6) + "T00:00:00+08:00");
+  const end = new Date(shiftHomeDate(date, 1) + "T00:00:00+08:00");
+  const { data, error } = await supabase.from("weight_logs").select("weight_kg,logged_at")
+    .eq("user_id", userId).gte("logged_at", start.toISOString()).lt("logged_at", end.toISOString())
+    .order("logged_at", { ascending: false });
+  if (error) throw error;
+  const weights = new Map();
+  for (const log of data) {
+    const day = homeDate.format(new Date(log.logged_at));
+    if (!weights.has(day) && Number(log.weight_kg) > 0) weights.set(day, Number(log.weight_kg));
+    if (weights.size === 7) break;
+  }
+  return weights;
+}
 
-  const nutritionPanel = renderNutritionSummary({...profile, _stages: stages}, current, totals);
-  return `
-    ${nutritionPanel}
+function homeMeter(label, percent, tone, valueText) {
+  const value = Math.max(0, Math.min(100, Math.round(percent)));
+  return `<div class="home-meter ${tone}" role="progressbar" aria-label="${label}"
+    aria-valuenow="${value}" aria-valuetext="${valueText}"><span style="width:${value}%"></span></div>`;
+}
+
+function renderHomeNutrition(goal, totals, date) {
+  if (!totals) return '<section class="card"><h2>今日營養攝取</h2><p>飲食紀錄暫時無法載入。</p></section>';
+  const remaining = goal.ready ? Math.round(goal.calorieTarget - totals.calories) : null;
+  const actualCalories = homeNumber.format(Math.round(totals.calories));
+  const targetCalories = goal.ready ? homeNumber.format(goal.calorieTarget) : null;
+  const macros = [
+    ["蛋白質", "protein", "sage"],
+    ["碳水", "carbs", "lavender"],
+    ["脂肪", "fat", "rose"]
+  ];
+  return `<section class="card home-nutrition">
+    <div class="home-row"><h2>今日營養攝取</h2><span class="home-note">${date.slice(5).replace("-", "/")}</span></div>
+    <div class="home-row home-energy">
+      <div><span class="home-note">${goal.ready ? (remaining < 0 ? "超出目標" : "剩餘熱量") : "已攝取"}</span>
+      <div class="home-number">${remaining === null ? actualCalories : homeNumber.format(Math.abs(remaining))} <small>kcal</small></div></div>
+      ${goal.ready ? `<div class="home-energy-side"><span class="home-note">已攝取 / 目標</span><b>${actualCalories} / ${targetCalories}</b></div>` : ""}
+    </div>
+    ${goal.ready ? homeMeter("今日熱量", totals.calories / goal.calorieTarget * 100, "rose", `${actualCalories} / ${targetCalories} kcal`) : '<p class="home-note">補齊個人設定後即可顯示每日目標。</p>'}
+    <div class="home-macros">
+      ${macros.map(([label, key, tone]) => {
+        const actual = homeNumber.format(totals[key]);
+        const target = goal.ready ? goal[key] : null;
+        const values = `${actual}${target === null ? "" : " / " + target} g`;
+        return `<div class="home-macro"><div class="home-row"><strong>${label}</strong><span>${values}</span></div>
+          ${target > 0 ? homeMeter(label, totals[key] / target * 100, tone, values) : ""}</div>`;
+      }).join("")}
+    </div>
+    ${goal.ready ? `<details class="home-details"><summary>熱量估算與階段資訊</summary>
+      <dl><div><dt>基礎代謝</dt><dd>${goal.bmr} kcal</dd></div><div><dt>每日總消耗</dt><dd>${goal.tdee} kcal</dd></div></dl>
+      <p>${escapeHTML(goal.activityLabel)}</p>
+      ${goal.stageName ? `<p>${escapeHTML(goal.stageName)} · 預估每週 ${goal.weeklyChange.toFixed(2)} kg</p>` : ""}
+      ${Math.abs(goal.macroCalories - goal.calorieTarget) > 5 ? `<p>營養素換算熱量為 ${goal.macroCalories} kcal，與熱量目標不同。</p>` : ""}
+      ${goal.warnings.map(warning => `<p>${escapeHTML(warning)}</p>`).join("")}
+    </details>` : ""}
+  </section>`;
+}
+
+function renderHomeWeight(stage, current, start) {
+  const target = stage ? Number(stage.target_weight_kg) : null;
+  const distance = target === null || current === null ? null : Math.max(0, current - target);
+  const progress = target !== null && current !== null && start > target ? (start - current) / (start - target) * 100 : null;
+  const showProgress = target !== null && current !== null && progress !== null;
+  return `<section class="card home-weight">
+    <div class="home-row"><h2>體重進度</h2><button type="button" data-tab="weight" class="home-link">查看體重 ›</button></div>
+    <div class="home-row home-energy"><div>
+      <span class="home-note">${latestWeight ? "最新體重" : "起始體重"}</span>
+      <div class="home-number">${current === null ? "—" : current.toFixed(1)} <small>kg</small></div>
+    </div>${target !== null ? `<div class="home-energy-side"><span class="home-note">階段目標</span><b>${target} kg</b></div>` : ""}</div>
+    ${showProgress ? homeMeter("體重目標進度", progress, "lavender", `${current.toFixed(1)} kg，目標 ${target} kg`) : ""}
+    ${target === null ? '<p class="home-note">目前無進行中的階段</p>' : `<dl class="home-stage">
+      <div><dt>距離目標</dt><dd>${distance === null ? "—" : distance === 0 ? "已達目標" : distance.toFixed(1) + " kg"}</dd></div>
+      <div><dt>目標日期</dt><dd>${escapeHTML(stage.target_date.replaceAll("-", "/"))}</dd></div>
+    </dl>`}
+  </section>`;
+}
+
+function renderHomeTrend(weights, date) {
+  const days = Array.from({ length: 7 }, (_, i) => shiftHomeDate(date, i - 6));
+  let trend = '<p class="home-note">體重紀錄暫時無法載入。</p>';
+  if (weights?.size === 0) trend = '<p class="home-note">最近 7 天還沒有體重紀錄。</p>';
+  if (weights?.size > 0) {
+    const values = [...weights.values()];
+    const baseline = Math.floor(Math.min(...values)) - 0.5;
+    const ceiling = Math.ceil(Math.max(...values));
+    trend = `<p class="home-note">每日最新紀錄 · 刻度從 ${baseline} kg 起</p><div class="home-trend">
+      ${days.map(day => {
+        const value = weights.get(day);
+        const height = value == null ? 0 : Math.round((value - baseline) / (ceiling - baseline) * 100);
+        return `<div class="home-day" aria-label="${day}，${value == null ? "未記錄" : value.toFixed(1) + " kg"}">
+          <b>${value == null ? "–" : value.toFixed(1)}</b>
+          <div class="home-column"><span style="height:${height}%"></span></div>
+          <small>${day.slice(5).replace("-", "/")}</small>
+        </div>`;
+      }).join("")}</div>`;
+  }
+  return `<section class="card"><h2>最近 7 天體重</h2>${trend}</section>`;
+}
+
+function renderHome(meals, weights, date) {
+  const current = Number(latestWeight?.weight_kg) || Number(profile?.start_weight_kg) || null;
+  const goal = calculateNutrition({ ...profile, _stages: stages }, current);
+  const stage = [...stages]
+    .filter(entry => entry.target_date >= date && Number(entry.target_weight_kg) > 0)
+    .sort((a, b) => a.target_date.localeCompare(b.target_date))[0];
+  const totals = { calories: 0, protein: 0, carbs: 0, fat: 0 };
+  const groups = new Map();
+  for (const meal of meals ?? []) {
+    const type = Object.hasOwn(mealLabels, meal.meal_type) ? meal.meal_type : "other";
+    const group = groups.get(type) ?? { calories: 0, names: new Set() };
+    groups.set(type, group);
+    for (const item of meal.meal_items ?? []) {
+      const calories = Number(item.calories) || 0;
+      group.calories += calories;
+      if (item.food_name) group.names.add(item.food_name);
+      totals.calories += calories;
+      totals.protein += Number(item.protein_g) || 0;
+      totals.carbs += Number(item.carbs_g) || 0;
+      totals.fat += Number(item.fat_g) || 0;
+    }
+  }
+  const mealRows = Object.entries(mealLabels).filter(([type]) => groups.has(type)).map(([type, label]) => {
+    const group = groups.get(type);
+    return `<li class="home-row"><div><strong>${label}</strong><p>${[...group.names].map(escapeHTML).join("、")}</p></div>
+      <b>${homeNumber.format(Math.round(group.calories))} kcal</b></li>`;
+  }).join("");
+  return `${homeStyles}<main class="home-dashboard">
+    ${renderHomeNutrition(goal, meals ? totals : null, date)}
+    ${renderHomeWeight(stage, current, Number(profile?.start_weight_kg))}
+    ${renderHomeTrend(weights, date)}
     <section class="card">
-      <p class="eyebrow">TODAY'S NUTRITION SUMMARY</p>
-      <h2>${Math.round(totals.calories)} kcal</h2>
-      <div class="macros">
-        <div><b>${totals.protein.toFixed(1)}g</b><span>蛋白質</span></div>
-        <div><b>${totals.carbs.toFixed(1)}g</b><span>碳水</span></div>
-        <div><b>${totals.fat.toFixed(1)}g</b><span>脂肪</span></div>
-      </div>
+      <div class="home-row"><h2>今日餐點</h2><button type="button" data-tab="meals" class="home-link">記錄飲食 ›</button></div>
+      ${mealRows ? `<ul class="home-meals">${mealRows}</ul>` : `<p class="home-note">${meals ? "今天還沒有飲食紀錄。" : "餐點暫時無法載入。"}</p>`}
     </section>
-
-    <section class="card">
-      <p class="eyebrow">MY WEIGHT JOURNEY</p>
-      <h3>目前體重</h3>
-      <h2>${current !== null ? current.toFixed(1) + " kg" : "尚未紀錄"}</h2>
-      ${usingStartingWeight && current !== null ? '<p class="muted">目前使用個人設定中的起始體重估算；新增體重紀錄後將自動更新。</p>' : ''}
-      <p>長期目標：${target !== null ? target + " kg" : "尚未設定"}</p>
-      ${
-        activeStage
-          ? `<p>目前階段：${escapeHTML(activeStage.stage_name)}</p>
-             <p>階段目標：${stageTarget} kg</p>
-             <p>距離階段目標：${remaining !== null ? remaining.toFixed(1) + " kg" : "請先紀錄體重"}</p>
-             <p>目標日期：${activeStage.target_date}</p>`
-          : "<p>請到「設定」新增減重階段。</p>"
-      }
+    <section class="card home-coach">
+      <div class="home-row"><h2>Coach</h2><button type="button" data-tab="coach" class="home-link">查看建議 ›</button></div>
+      <p class="home-note">依近 7 天的紀錄檢視飲食與營養。</p>
     </section>
-
-    <section class="card">
-      <h3>今日活動</h3>
-      <p class="muted">尚未連接 Apple Health，活動消耗及步數請先手動紀錄。</p>
-    </section>
-
-    <section class="card">
-      <h3>AI Coach</h3>
-      <p>完成飲食、體重及運動紀錄後，才能進行有根據的個人化分析。</p>
-      <p class="muted">AI 主動分析功能將於後續版本加入。</p>
-    </section>
-  `;
+  </main>`;
 }
 
 async function showApp() {
@@ -225,20 +370,12 @@ async function showApp() {
     ]);
 
     if (currentTab === "home") {
-      const { data: dailyActual, error: dailyError } = await supabase
-        .from("daily_nutrition_actual")
-        .select("calories,protein_g,carbs_g,fat_g")
-        .eq("user_id", currentUser.id)
-        .eq("meal_date", today())
-        .maybeSingle();
-      if (dailyError) throw dailyError;
-      const totals = {
-        calories: Number(dailyActual?.calories ?? 0),
-        protein: Number(dailyActual?.protein_g ?? 0),
-        carbs: Number(dailyActual?.carbs_g ?? 0),
-        fat: Number(dailyActual?.fat_g ?? 0)
-      };
-      content = renderHome(totals);
+      const date = homeDate.format(new Date());
+      const [meals, weights] = await Promise.allSettled([
+        loadHomeMeals(currentUser.id, date),
+        loadHomeWeights(currentUser.id, date)
+      ]);
+      content = renderHome(meals.value ?? null, weights.value ?? null, date);
     }
 
     if (currentTab === "meals") {
@@ -331,9 +468,9 @@ async function showApp() {
   }
 
   app.innerHTML = `
-    <header>
+    <header class="${currentTab === "home" ? "home-header" : ""}">
       <h1>♡ My Slim Journey</h1>
-      <p>${escapeHTML(currentUser.email)}</p>
+      ${currentTab === "home" ? "" : `<p>${escapeHTML(currentUser.email)}</p>`}
       <button id="logout" class="logout">登出</button>
     </header>
     ${content}
@@ -365,7 +502,7 @@ async function showApp() {
   }
 
   document.querySelectorAll("[data-tab]").forEach(button => {
-    button.classList.toggle("active", button.dataset.tab === currentTab);
+    if (button.closest("nav")) button.classList.toggle("active", button.dataset.tab === currentTab);
     button.onclick = () => {
       currentTab = button.dataset.tab;
       showApp();
@@ -499,16 +636,7 @@ async function showApp() {
     renderMealInsights(supabase, currentUser.id, profile, latestWeight).catch(console.error);
   }
 
-  if (currentTab === "home") {
-    const effectiveWeight = latestWeight?.weight_kg != null && Number(latestWeight.weight_kg) > 0
-      ? latestWeight
-      : profile?.start_weight_kg != null && Number(profile.start_weight_kg) > 0
-        ? { weight_kg: Number(profile.start_weight_kg), logged_at: null }
-        : null;
-    enhanceHome(supabase, currentUser.id, profile, effectiveWeight)
-      .then(() => renderDailyBudget(supabase, currentUser.id, {...profile, _stages: stages}, effectiveWeight))
-      .catch(console.error);
-  }}
+}
 
 async function refresh() {
   const { data } = await supabase.auth.getSession();
