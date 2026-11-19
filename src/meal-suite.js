@@ -161,6 +161,7 @@ export function renderMealSuite() {
       <div id="diaryCopy" hidden></div>
       <div id="diarySummary"></div>
       <button type="button" id="diaryCopyYesterday" class="diary-link" hidden>複製前一天餐點</button>
+      <button type="button" id="diaryCopyRecent" class="diary-link">複製最近一餐</button>
       <div id="diaryMeals"></div>
     </section>
     <dialog id="diaryDialog" aria-labelledby="diaryDialogTitle">
@@ -330,7 +331,7 @@ export function initMealSuite(db, uid, config = {}) {
   }
 
   function openView(view, markup, date = selected) {
-    get("diaryDialogTitle").textContent = methodNames[view];
+    get("diaryDialogTitle").textContent = view === "history" ? "搜尋吃過的食物" : methodNames[view];
     get("diaryDialogDate").textContent = visibleDate(date) + (future(date) ? " · 預計飲食" : "");
     body.innerHTML = markup;
     dialog.scrollTop = 0;
@@ -368,15 +369,57 @@ export function initMealSuite(db, uid, config = {}) {
   function openMenu(type = "") {
     openView("menu", `<div class="diary-methods">
       ${["text", "photo", "manual", "favorites"].map(view => `<button type="button" data-method="${view}">${methodNames[view]} <span aria-hidden="true">›</span></button>`).join("")}
+      <button type="button" data-method="history">搜尋吃過的食物</button>
     </div>`);
     body.querySelectorAll("[data-method]").forEach(button => {
       button.onclick = () => {
         const view = button.dataset.method;
         if (view === "manual") openManual(type);
+        else if (view === "history") void openFoodHistory(type);
         else if (view === "favorites") void openFavorites(type);
         else openAI(view, type);
       };
     });
+  }
+
+  async function recentMeals(cutoff, limit) {
+    const { data, error } = await db.from("meals")
+      .select("meal_type,source,eaten_at,notes,meal_items!inner(*)")
+      .eq("user_id", uid).neq("source", "planned").lt("eaten_at", cutoff)
+      .order("eaten_at", { ascending: false }).order("id", { ascending: false }).limit(limit);
+    if (error) throw error;
+    return data || [];
+  }
+
+  async function openFoodHistory(type) {
+    openView("history", '<input type="search" aria-label="食物名稱" placeholder="輸入食物名稱"><div data-results role="status">載入食物紀錄中…</div>');
+    const input = body.querySelector("input");
+    const results = body.querySelector("[data-results]");
+    try {
+      const rows = await recentMeals(new Date().toISOString(), 100);
+      if (!input.isConnected || !dialog.open) return;
+      const items = rows.flatMap(meal => meal.meal_items).filter(item => item.food_name?.trim());
+      const draw = () => {
+        const query = input.value.trim().normalize("NFKC").toLowerCase();
+        const seen = new Set();
+        const matches = items.filter(item => {
+          const name = item.food_name.normalize("NFKC").toLowerCase();
+          const signature = JSON.stringify([name, item.quantity, item.serving_weight_g, ...keys.map(key => item[key])]);
+          if (!name.includes(query) || seen.has(signature)) return false;
+          seen.add(signature);
+          return true;
+        }).slice(0, 12);
+        results.innerHTML = matches.length ? matches.map((item, index) => `<button type="button" class="diary-entry" data-history="${index}"><span>${esc(item.food_name)} <small>${esc(item.quantity || "")}</small></span><span>${item.calories == null ? "未記錄熱量" : esc(item.calories) + " kcal"}</span></button>`).join("") : "最近 100 筆餐點中沒有符合的食物。";
+        results.onclick = event => {
+          const index = event.target.closest("[data-history]")?.dataset.history;
+          if (index != null) openManual(type, [matches[Number(index)]]);
+        };
+      };
+      input.oninput = draw;
+      draw();
+    } catch {
+      if (results.isConnected) results.textContent = "無法載入食物紀錄，請關閉後重試。";
+    }
   }
 
   function openManual(type, items = []) {
@@ -586,6 +629,28 @@ export function initMealSuite(db, uid, config = {}) {
       if (!confirm(`將前一天的 ${entries.length} 筆餐點新增到 ${visibleDate(date)}？原有紀錄會保留。`)) return;
       await save(db, entries.map(meal => copiedMeal(meal, date)));
       refresh(`已複製 ${entries.length} 筆餐點。`);
+    } catch (error) { showMessage(error.message || "複製失敗。"); }
+    finally { busy = false; button.disabled = false; }
+  };
+
+  get("diaryCopyRecent").onclick = async event => {
+    if (busy) return;
+    const button = event.currentTarget;
+    const date = selected;
+    const now = new Date().toISOString();
+    const dayEnd = midnight(shiftDay(date, 1));
+    busy = true;
+    button.disabled = true;
+    showMessage("");
+    try {
+      const [meal] = await recentMeals(dayEnd < now ? dayEnd : now, 1);
+      if (!diary.isConnected) return;
+      if (!meal) return showMessage("沒有可複製的餐點紀錄。");
+      const label = types[meal.meal_type] || types.other;
+      const from = visibleDate(dateFormatter.format(new Date(meal.eaten_at)));
+      if (!confirm(`將 ${from}的${label}複製到 ${visibleDate(date)}？原有紀錄會保留。`)) return;
+      await save(db, [copiedMeal(meal, date)]);
+      refresh("已複製最近一餐。");
     } catch (error) { showMessage(error.message || "複製失敗。"); }
     finally { busy = false; button.disabled = false; }
   };
