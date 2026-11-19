@@ -1,5 +1,5 @@
 // Batch 3: read-only, Taiwan-local wellness insights. No database writes.
-import { calculateNutrition } from './nutrition.js';
+import { calculateNutrition, renderNutritionBasis } from './nutrition.js';
 const tw = (d=new Date()) => new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(d));
 const add=(day,n)=>new Date(Date.parse(day+'T00:00:00Z')+n*86400000).toISOString().slice(0,10);
 const range=(day,n=1)=>[new Date(day+'T00:00:00+08:00').toISOString(),new Date(add(day,n)+'T00:00:00+08:00').toISOString()];
@@ -49,6 +49,15 @@ function summarizeCoachWeights(logs, start, split, end) {
     average: weights.length ? weights.reduce((sum, weight) => sum + weight, 0) / weights.length : null
   });
   return { previous: summarize(previous), recent: summarize(recent) };
+}
+
+export async function loadNutritionTrend(db, uid, end = tw()) {
+  const split = add(end, -7);
+  const start = add(end, -14);
+  const [from, to] = range(start, 14);
+  const logs = await fetchAll(db.from("weight_logs").select("weight_kg,logged_at").eq("user_id", uid)
+    .gte("logged_at", from).lt("logged_at", to).order("logged_at").order("id"));
+  return summarizeCoachWeights(logs, start, split, end);
 }
 
 function coachStat(value, label) {
@@ -114,24 +123,26 @@ export async function renderCoachGuidance(db, uid, profile, weight) {
   const end = tw();
   const split = add(end, -7);
   const start = add(end, -14);
-  const [from, to] = range(start, 14);
-  const [activityFrom] = range(split);
+  const [activityFrom, to] = range(split, 7);
   const [weightResult, mealResult, activityResult] = await Promise.allSettled([
-    fetchAll(db.from("weight_logs").select("weight_kg,logged_at").eq("user_id", uid)
-      .gte("logged_at", from).lt("logged_at", to).order("logged_at").order("id")),
+    loadNutritionTrend(db, uid, end),
     mealsBetween(db, uid, split, 7),
     fetchAll(db.from("activity_logs").select("duration_minutes,steps").eq("user_id", uid)
       .gte("logged_at", activityFrom).lt("logged_at", to).order("id"))
   ]);
   if (!document.contains(anchor)) return;
-  const goal = goals(profile, weight);
+  const goal = calculateNutrition({ ...profile, _weightTrend: weightResult.value }, weight?.weight_kg, end);
   const unavailable = '<p class="muted">暫時無法讀取這項紀錄。</p>';
   const weightSummary = weightResult.status === "fulfilled"
-    ? renderCoachTrend(summarizeCoachWeights(weightResult.value, start, split, end), goal, start, split, end)
+    ? renderCoachTrend(weightResult.value, goal, start, split, end)
     : unavailable;
   const recordsSummary = mealResult.status === "fulfilled" && activityResult.status === "fulfilled"
     ? renderCoachRecords(mealResult.value, activityResult.value, goal)
     : unavailable;
-  anchor.innerHTML = `<h3>近 14 天體重回顧</h3>${weightSummary}
+  const plan = goal.ready
+    ? renderNutritionBasis(goal) + goal.warnings.map(warning => `<p class="muted">${safe(warning)}</p>`).join("")
+    : `<p class="muted">${safe(goal.reason || "請先補齊個人與體重資料。")}</p>`;
+  anchor.innerHTML = `<h3>目前營養估算</h3>${plan}
+    <h3>近 14 天體重回顧</h3>${weightSummary}
     <h3>近 7 天飲食與活動</h3>${recordsSummary}`;
 }

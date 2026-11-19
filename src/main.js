@@ -4,10 +4,10 @@ import { enhanceMeals } from "./improvements.js";
 import { renderWeightInsights, renderMealInsights, renderReportInsights, renderActivityInsights } from "./insights.js";
 import "./insights.css";
 import "./journey-next.css";
-import { renderCoachGuidance } from "./journey-next.js";
+import { renderCoachGuidance, loadNutritionTrend } from "./journey-next.js";
 import "./analytics.css";
 import { createClient } from "@supabase/supabase-js";
-import { calculateNutrition } from "./nutrition.js";
+import { calculateNutrition, renderNutritionBasis } from "./nutrition.js";
 import { renderMealSuite, initMealSuite } from "./meal-suite.js";
 import "./meal-suite.css";
 import "./style.css";
@@ -254,7 +254,8 @@ function renderHomeNutrition(goal, totals, date) {
       <div class="home-number">${remaining === null ? actualCalories : homeNumber.format(Math.abs(remaining))} <small>kcal</small></div></div>
       ${goal.ready ? `<div class="home-energy-side"><span class="home-note">已攝取 / 目標</span><b>${actualCalories} / ${targetCalories}</b></div>` : ""}
     </div>
-    ${goal.ready ? homeMeter("今日熱量", totals.calories / goal.calorieTarget * 100, "rose", `${actualCalories} / ${targetCalories} kcal`) : '<p class="home-note">補齊個人設定後即可顯示每日目標。</p>'}
+    ${goal.ready ? homeMeter("今日熱量", totals.calories / goal.calorieTarget * 100, "rose", `${actualCalories} / ${targetCalories} kcal`)
+      : `<p class="home-note">${escapeHTML(goal.reason || "補齊個人設定後即可顯示每日目標。")}</p>`}
     <div class="home-macros">
       ${macros.map(([label, key, tone]) => {
         const actual = homeNumber.format(totals[key]);
@@ -266,8 +267,9 @@ function renderHomeNutrition(goal, totals, date) {
     </div>
     ${goal.ready ? `<details class="home-details"><summary>熱量估算與階段資訊</summary>
       <dl><div><dt>基礎代謝</dt><dd>${goal.bmr} kcal</dd></div><div><dt>每日總消耗</dt><dd>${goal.tdee} kcal</dd></div></dl>
+      ${renderNutritionBasis(goal)}
       <p>${escapeHTML(goal.activityLabel)}</p>
-      ${goal.stageName ? `<p>${escapeHTML(goal.stageName)} · 預估每週 ${goal.weeklyChange.toFixed(2)} kg</p>` : ""}
+      ${goal.stageName ? `<p>${escapeHTML(goal.stageName)} · 熱量差換算約每週 ${goal.weeklyChange.toFixed(2)} kg</p>` : ""}
       ${Math.abs(goal.macroCalories - goal.calorieTarget) > 5 ? `<p>營養素換算熱量為 ${goal.macroCalories} kcal，與熱量目標不同。</p>` : ""}
       ${goal.warnings.map(warning => `<p>${escapeHTML(warning)}</p>`).join("")}
     </details>` : ""}
@@ -315,9 +317,9 @@ function renderHomeTrend(weights, date) {
   return `<section class="card"><h2>最近 7 天體重</h2>${trend}</section>`;
 }
 
-function renderHome(meals, weights, date) {
+function renderHome(meals, weights, date, weightTrend) {
   const current = Number(latestWeight?.weight_kg) || Number(profile?.start_weight_kg) || null;
-  const goal = calculateNutrition({ ...profile, _stages: stages }, current);
+  const goal = calculateNutrition({ ...profile, _stages: stages, _weightTrend: weightTrend }, current, date);
   const stage = [...stages]
     .filter(entry => entry.target_date >= date && Number(entry.target_weight_kg) > 0)
     .sort((a, b) => a.target_date.localeCompare(b.target_date))[0];
@@ -371,11 +373,12 @@ async function showApp() {
 
     if (currentTab === "home") {
       const date = homeDate.format(new Date());
-      const [meals, weights] = await Promise.allSettled([
+      const [meals, weights, trend] = await Promise.allSettled([
         loadHomeMeals(currentUser.id, date),
-        loadHomeWeights(currentUser.id, date)
+        loadHomeWeights(currentUser.id, date),
+        loadNutritionTrend(supabase, currentUser.id, date)
       ]);
-      content = renderHome(meals.value ?? null, weights.value ?? null, date);
+      content = renderHome(meals.value ?? null, weights.value ?? null, date, trend.value);
     }
 
     if (currentTab === "meals") {
@@ -636,9 +639,18 @@ async function showApp() {
   }
 
   if (currentTab === "meals") {
-    initMealSuite(supabase, currentUser.id, () => renderMealInsights(supabase, currentUser.id, nutritionProfile, latestWeight));
+    const mealForm = document.getElementById("msManualForm");
+    const mealWeight = latestWeight;
+    const trend = loadNutritionTrend(supabase, analyticsUser).catch(() => null);
+    const refreshMealInsights = async () => {
+      const weightTrend = await trend;
+      if (mealForm && document.contains(mealForm)) {
+        await renderMealInsights(supabase, analyticsUser, { ...nutritionProfile, _weightTrend: weightTrend }, mealWeight);
+      }
+    };
+    initMealSuite(supabase, analyticsUser, refreshMealInsights);
     enhanceMeals();
-    renderMealInsights(supabase, currentUser.id, nutritionProfile, latestWeight).catch(console.error);
+    refreshMealInsights().catch(console.error);
   }
 
 }
