@@ -101,20 +101,51 @@ async function getRows(table, dateColumn) {
 function showLogin() {
   app.innerHTML = `
     <div class="login-page">
-      <h1>♡ My Slim Journey</h1>
-      <p>Every day, a healthier me.</p>
+      <div class="login-brand" aria-hidden="true">♡</div>
+      <h1>My Slim Journey</h1>
+      <p>記錄飲食、運動與體態進度</p>
+
+      <div class="social-login" aria-label="快速登入">
+        <button type="button" class="social-button" data-provider="google">
+          <span class="google-mark" aria-hidden="true">G</span><span>使用 Google 繼續</span>
+        </button>
+        <button type="button" class="social-button apple-button" data-provider="apple">
+          <span class="apple-mark" aria-hidden="true">●</span><span>使用 Apple 繼續</span>
+        </button>
+      </div>
+
+      <div class="login-divider"><span>或使用 Email</span></div>
 
       <form id="loginForm">
+        <label>Email
         <input name="email" type="email"
-          placeholder="Email" required>
+          placeholder="name@example.com" autocomplete="email" required></label>
+        <label>密碼
         <input name="password" type="password"
-          placeholder="Password" required minlength="6">
-        <button type="submit">登入</button>
-        <button type="button" id="signup">建立帳號</button>
+          placeholder="至少 6 個字元" autocomplete="current-password" required minlength="6"></label>
+        <button type="submit" id="emailLogin">登入</button>
+        <button type="button" id="signup">建立 Email 帳號</button>
       </form>
-      <p id="message"></p>
+      <p id="message" class="login-message" role="status" aria-live="polite"></p>
+      <p class="login-terms">繼續即表示你同意服務條款與隱私權政策。</p>
     </div>
   `;
+
+  document.querySelectorAll("[data-provider]").forEach(button => {
+    button.onclick = async () => {
+      const message = document.querySelector("#message");
+      button.disabled = true;
+      message.textContent = "正在開啟登入頁面…";
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: button.dataset.provider,
+        options: { redirectTo: `${window.location.origin}${window.location.pathname}` }
+      });
+      if (error) {
+        message.textContent = `無法使用此登入方式：${error.message}`;
+        button.disabled = false;
+      }
+    };
+  });
 
   document.querySelector("#loginForm").onsubmit = async event => {
     event.preventDefault();
@@ -433,20 +464,24 @@ function renderAppShell(content) {
   const trend = currentTab === "weight" || currentTab === "reports";
   const name = String(profile?.display_name || currentUser.email || "").trim();
   const initial = [...name][0]?.toUpperCase() || "帳";
+  const avatarUrl = currentUser.user_metadata?.avatar_url || currentUser.user_metadata?.picture;
   const tab = (id, label, selected) => `<button type="button" data-tab="${id}" ${selected ? 'class="active" aria-current="page"' : ""}>
     <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round">${tabIcons[id]}</svg>
     <span>${label}</span></button>`;
   const headerAction = currentTab === "settings"
     ? '<button type="button" data-tab="home" class="app-back" aria-label="回今日">‹</button>'
-    : `<button type="button" data-tab="settings" class="app-avatar" aria-label="帳號與設定">${escapeHTML(initial)}</button>`;
+    : `<button type="button" data-tab="settings" class="app-avatar" aria-label="帳號與設定">${avatarUrl ? `<img src="${escapeHTML(avatarUrl)}" alt="">` : escapeHTML(initial)}</button>`;
   return `<header class="app-header"><h1>${sectionTitles[currentTab] || "今日"}</h1>${headerAction}</header>
     ${trend ? `<div class="app-trend-tabs" role="group" aria-label="趨勢分類">
       <button type="button" data-tab="weight" aria-pressed="${currentTab === "weight"}">體重</button>
       <button type="button" data-tab="reports" aria-pressed="${currentTab === "reports"}">週報</button>
     </div>` : ""}
     ${content}
-    ${currentTab === "settings" ? `<section class="card app-account"><h2>登入帳號</h2><p>${escapeHTML(currentUser.email || "")}</p>
-      <button id="logout" type="button">登出</button></section>` : ""}
+    ${currentTab === "settings" ? `<section class="card app-account"><div class="account-summary">
+      <div class="account-avatar">${avatarUrl ? `<img src="${escapeHTML(avatarUrl)}" alt="">` : escapeHTML(initial)}</div>
+      <div><strong>${escapeHTML(profile?.display_name || currentUser.user_metadata?.full_name || "我的帳號")}</strong><p>${escapeHTML(currentUser.email || "")}</p></div>
+      </div><p class="account-provider">登入方式：${escapeHTML(currentUser.app_metadata?.provider === "google" ? "Google" : currentUser.app_metadata?.provider === "apple" ? "Apple" : "Email")}</p>
+      <button id="logout" type="button" class="account-logout">登出</button></section>` : ""}
     <nav class="app-tabs" aria-label="主要導覽">
       ${tab("home", "今日", currentTab === "home")}
       ${tab("meals", "飲食", currentTab === "meals")}
@@ -489,8 +524,9 @@ async function showApp() {
 
     if (currentTab === "settings") {
       content = `
-        <section class="card">
-          <h2>個人設定</h2>
+        <details class="card settings-panel" open>
+          <summary><span>個人資料</span><small>身高、活動量與營養目標</small></summary>
+          <div class="settings-panel-body">
           <form id="profileForm">
             <label>顯示名稱<input name="display_name" value="${escapeHTML(profile?.display_name || "")}"></label>
             <label>出生日期<input name="birth_date" type="date" value="${profile?.birth_date ?? ""}" required></label>
@@ -508,11 +544,12 @@ async function showApp() {
             <label>脂肪（g）<input name="fat_target_g" type="number" min="0" max="250" step="1" value="${profile?.fat_target_g ?? ""}"></label></details>
             <button type="submit">儲存個人設定</button>
           </form>
-          <p class="muted">目前體重會自動讀取最新一筆體重紀錄。</p>
-        </section>
+          <p class="muted">目前體重會自動讀取最新一筆體重紀錄。</p></div>
+        </details>
 
-        <section class="card">
-          <h2>減重階段管理</h2>
+        <details class="card settings-panel">
+          <summary><span>目標階段</span><small>${stages.length ? `${stages.length} 個階段` : "尚未設定"}</small></summary>
+          <div class="settings-panel-body">
           <p class="muted">你可以自行新增、修改及刪除階段。</p>
 
           <form id="stageForm">
@@ -533,9 +570,6 @@ async function showApp() {
               取消修改
             </button>
           </form>
-        </section>
-
-        <section class="card">
           <h3>已設定的階段</h3>
           ${
             stages.length
@@ -556,7 +590,8 @@ async function showApp() {
               `).join("")
               : "<p class='muted'>尚未新增階段目標。</p>"
           }
-        </section>
+          </div>
+        </details>
       `;
     }
 
