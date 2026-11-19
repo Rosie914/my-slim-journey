@@ -567,7 +567,7 @@ export function initMealSuite(db, uid, config = {}) {
 
   function openManual(type, items = []) {
     const date = selected;
-    openView("manual", `<form>${addFields(items, type || "breakfast")}<button type="submit">儲存飲食</button><p data-status role="status"></p></form>`);
+    openView("manual", `<form>${addFields(items, type || "breakfast")}<div data-meal-preview class="diary-note" aria-live="polite"></div><button type="submit">儲存飲食</button><p data-status role="status"></p></form>`);
     let read;
     const form = bindForm(async data => {
       await save(db, [{ meal_type: data.get("meal_type"), source: sourceFor(date, "manual"),
@@ -576,6 +576,16 @@ export function initMealSuite(db, uid, config = {}) {
       refresh("已儲存飲食。");
     });
     read = editItemFields(form, items);
+    const preview = form.querySelector("[data-meal-preview]");
+    const updatePreview = () => {
+      const rows = [...form.querySelectorAll(".ms-item")];
+      const values = rows.map(row => Object.fromEntries(keys.map(key => [key, num(row.querySelector(`[data-n="${key}"]`)?.value)])));
+      const sum = key => values.some(row => row[key] == null) ? "資料不完整" : number.format(values.reduce((total, row) => total + row[key], 0));
+      preview.textContent = `${date} · ${types[form.elements.meal_type?.value] || types.other} · 熱量 ${sum("calories")} kcal · 蛋白質 ${sum("protein_g")} g`;
+    };
+    form.addEventListener("input", updatePreview);
+    form.addEventListener("change", updatePreview);
+    updatePreview();
   }
 
   function openAI(view, type) {
