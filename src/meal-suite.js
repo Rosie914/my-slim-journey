@@ -131,6 +131,13 @@ export function renderMealSuite() {
         <button type="button" id="diaryNext" class="diary-icon" aria-label="下一個月">›</button>
       </div>
       <div id="diaryCalendarGrid" class="diary-calendar-grid" aria-label="選擇飲食日期"></div>
+      <details id="diaryJump"><summary>跳到指定月份</summary>
+        <form id="diaryJumpForm">
+          <label>年份<input name="year" type="number" min="1900" max="9998" required></label>
+          <label>月份<input name="month" type="number" min="1" max="12" required></label>
+          <button type="submit">查看月份</button>
+        </form>
+      </details>
       <div class="diary-calendar-footer"><span id="diarySelected"></span><button type="button" id="diaryToday" class="diary-link">回到今天</button></div>
     </section>
     <section class="card diary-overview">
@@ -580,6 +587,27 @@ export function initMealSuite(db, uid, config = {}) {
   get("diaryPrevious").onclick = () => moveMonth(-1);
   get("diaryNext").onclick = () => moveMonth(1);
   get("diaryToday").onclick = () => selectDate(day());
+  const jump = get("diaryJump");
+  const jumpForm = get("diaryJumpForm");
+  jump.ontoggle = () => {
+    if (!jump.open) return;
+    const [year, monthNumber] = month.split("-");
+    jumpForm.elements.year.value = year;
+    jumpForm.elements.month.value = Number(monthNumber);
+  };
+  jumpForm.onsubmit = event => {
+    event.preventDefault();
+    if (busy || !jumpForm.reportValidity()) return;
+    const year = Number(jumpForm.elements.year.value);
+    const monthNumber = String(Number(jumpForm.elements.month.value)).padStart(2, "0");
+    month = year + "-" + monthNumber;
+    markers = new Map();
+    calendarOpen = true;
+    jump.open = false;
+    drawCalendar();
+    calendarToggle.focus();
+    void loadMarkers();
+  };
   calendarToggle.onclick = () => { calendarOpen = !calendarOpen; drawCalendar(); };
   grid.onclick = event => {
     const button = event.target.closest("[data-date]");
