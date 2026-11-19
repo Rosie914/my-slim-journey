@@ -19,7 +19,9 @@ const supabase = createClient(
 const app = document.querySelector("#app");
 
 let currentUser = null;
-let currentTab = "home";
+const appTabs = ["home", "meals", "activity", "weight", "reports", "coach", "settings"];
+const savedTab = localStorage.getItem("msj-current-tab");
+let currentTab = appTabs.includes(savedTab) ? savedTab : "home";
 let diarySelection = null;
 let profile = null;
 let stages = [];
@@ -125,6 +127,7 @@ function showLogin() {
           placeholder="至少 6 個字元" autocomplete="current-password" required minlength="6"></label>
         <button type="submit" id="emailLogin">登入</button>
         <button type="button" id="signup">建立 Email 帳號</button>
+        <button type="button" id="forgotPassword" class="text-button">忘記密碼？</button>
       </form>
       <p id="message" class="login-message" role="status" aria-live="polite"></p>
       <p class="login-terms">繼續即表示你同意服務條款與隱私權政策。</p>
@@ -150,6 +153,9 @@ function showLogin() {
   document.querySelector("#loginForm").onsubmit = async event => {
     event.preventDefault();
     const form = new FormData(event.target);
+    const submit = document.querySelector("#emailLogin");
+    submit.disabled = true;
+    submit.textContent = "登入中…";
 
     const { error } = await supabase.auth.signInWithPassword({
       email: form.get("email"),
@@ -158,6 +164,8 @@ function showLogin() {
 
     if (error) {
       document.querySelector("#message").textContent = error.message;
+      submit.disabled = false;
+      submit.textContent = "登入";
     } else {
       await refresh();
     }
@@ -175,6 +183,19 @@ function showLogin() {
 
     document.querySelector("#message").textContent =
       error ? error.message : "請到 Email 收取驗證信。";
+  };
+
+  document.querySelector("#forgotPassword").onclick = async () => {
+    const email = document.querySelector('#loginForm [name="email"]').value.trim();
+    const message = document.querySelector("#message");
+    if (!email) {
+      message.textContent = "請先輸入 Email，再點選忘記密碼。";
+      return;
+    }
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}${window.location.pathname}`
+    });
+    message.textContent = error ? `無法寄送：${error.message}` : "密碼重設信已寄出，請查看信箱。";
   };
 }
 
@@ -476,12 +497,15 @@ function renderAppShell(content) {
       <button type="button" data-tab="weight" aria-pressed="${currentTab === "weight"}">體重</button>
       <button type="button" data-tab="reports" aria-pressed="${currentTab === "reports"}">週報</button>
     </div>` : ""}
-    ${content}
     ${currentTab === "settings" ? `<section class="card app-account"><div class="account-summary">
       <div class="account-avatar">${avatarUrl ? `<img src="${escapeHTML(avatarUrl)}" alt="">` : escapeHTML(initial)}</div>
       <div><strong>${escapeHTML(profile?.display_name || currentUser.user_metadata?.full_name || "我的帳號")}</strong><p>${escapeHTML(currentUser.email || "")}</p></div>
       </div><p class="account-provider">登入方式：${escapeHTML(currentUser.app_metadata?.provider === "google" ? "Google" : currentUser.app_metadata?.provider === "apple" ? "Apple" : "Email")}</p>
+      <details class="account-security"><summary>帳號安全</summary>
+        <form id="passwordForm"><label>設定新密碼<input name="password" type="password" autocomplete="new-password" minlength="6" placeholder="至少 6 個字元" required></label><button type="submit">更新密碼</button></form>
+      </details>
       <button id="logout" type="button" class="account-logout">登出</button></section>` : ""}
+    ${content}
     <nav class="app-tabs" aria-label="主要導覽">
       ${tab("home", "今日", currentTab === "home")}
       ${tab("meals", "飲食", currentTab === "meals")}
@@ -632,6 +656,7 @@ async function showApp() {
       if (currentTab === next) return;
       if (button.closest(".home-dashboard") && next === "meals") diarySelection = null;
       currentTab = next;
+      localStorage.setItem("msj-current-tab", next);
       window.scrollTo(0, 0);
       showApp();
     };
@@ -643,8 +668,24 @@ async function showApp() {
     if (error) return showMessage(error.message);
     diarySelection = null;
     currentTab = "home";
+    localStorage.setItem("msj-current-tab", "home");
     currentUser = null;
     showLogin();
+  };
+
+  const passwordForm = document.querySelector("#passwordForm");
+  if (passwordForm) passwordForm.onsubmit = async event => {
+    event.preventDefault();
+    const button = passwordForm.querySelector('button[type="submit"]');
+    button.disabled = true;
+    button.textContent = "更新中…";
+    const password = new FormData(passwordForm).get("password");
+    const { error } = await supabase.auth.updateUser({ password });
+    button.disabled = false;
+    button.textContent = "更新密碼";
+    if (error) return showMessage(`更新失敗：${error.message}`);
+    passwordForm.reset();
+    showMessage("密碼已更新。");
   };
 
   const profileForm = document.querySelector("#profileForm");
@@ -783,13 +824,18 @@ async function refresh() {
 
 supabase.auth.onAuthStateChange((event, session) => {
   const nextUser = session?.user || null;
+  if (event === "PASSWORD_RECOVERY") {
+    currentTab = "settings";
+    localStorage.setItem("msj-current-tab", "settings");
+  }
   if (currentUser?.id && currentUser.id === nextUser?.id && (event === "TOKEN_REFRESHED" || event === "SIGNED_IN")) {
     currentUser = nextUser;
     return;
   }
-  if (currentUser?.id !== nextUser?.id) {
+  if (!nextUser && currentUser?.id) {
     diarySelection = null;
     currentTab = "home";
+    localStorage.setItem("msj-current-tab", "home");
   }
   currentUser = nextUser;
   showApp();

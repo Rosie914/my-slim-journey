@@ -157,6 +157,7 @@ button {
   font-size: 14px;
   cursor: pointer;
 }
+button:disabled { opacity: .58; cursor: wait; }
 
 form button {
   width: 100%;
@@ -167,6 +168,13 @@ form button {
   margin-top: 10px;
   background: #f3eae6;
   color: #80635b;
+}
+.text-button {
+  margin-top: 8px;
+  padding: 9px;
+  color: #785a6e;
+  background: transparent;
+  font-weight: 650;
 }
 
 .logout {
@@ -278,6 +286,10 @@ nav button.active {
 .account-avatar { display: grid; place-items: center; width: 52px; height: 52px; overflow: hidden; border-radius: 50%; color: #593b54; background: #eee3eb; font-weight: 750; font-size: 19px; }
 .account-provider { margin: 15px 0 10px; color: #8e807b; font-size: 13px; }
 .account-logout { width: 100%; color: #8a4f63; background: #f7ecef; }
+.account-security { margin: 12px 0; border-top: 1px solid #eee5e1; border-bottom: 1px solid #eee5e1; }
+.account-security summary { padding: 14px 2px; color: #5c4d55; cursor: pointer; font-size: 14px; font-weight: 700; }
+.account-security form { padding: 0 2px 15px; }
+.account-security form label { margin-top: 4px; }
 .settings-panel { padding: 0; overflow: hidden; }
 .settings-panel > summary {
   display: grid;
