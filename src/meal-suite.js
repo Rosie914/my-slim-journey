@@ -16,6 +16,16 @@ function numericFields(item, keysToShow) {
   }).join("");
 }
 
+function catalogPortion(food, grams) {
+  const ids = { calories:1008, protein_g:1003, carbs_g:1005, fat_g:1004, fiber_g:1079, sugar_g:2000, sodium_mg:1093 };
+  const item = {food_name:food.description, serving_weight_g:grams, quantity:grams + " g", nutrition_source:"food_database", confidence:"high"};
+  for (const [key, id] of Object.entries(ids)) {
+    const value = food.foodNutrients?.find(n => n.nutrientId === id)?.value;
+    item[key] = Number.isFinite(value) ? Math.round(value * grams / 100 * 100) / 100 : null;
+  }
+  return item;
+}
+
 function itemForm(item = {}, index = 0, chooseType = false) {
   const source = item.nutrition_source ? sourceLabels[item.nutrition_source] : null;
   return `<div class="ms-item" data-original-index="${index}">
@@ -369,17 +379,55 @@ export function initMealSuite(db, uid, config = {}) {
   function openMenu(type = "") {
     openView("menu", `<div class="diary-methods">
       ${["text", "photo", "manual", "favorites"].map(view => `<button type="button" data-method="${view}">${methodNames[view]} <span aria-hidden="true">›</span></button>`).join("")}
+      <button type="button" data-method="catalog">搜尋食物資料庫</button>
       <button type="button" data-method="history">搜尋吃過的食物</button>
     </div>`);
     body.querySelectorAll("[data-method]").forEach(button => {
       button.onclick = () => {
         const view = button.dataset.method;
         if (view === "manual") openManual(type);
+        else if (view === "catalog") openCatalog(type);
         else if (view === "history") void openFoodHistory(type);
         else if (view === "favorites") void openFavorites(type);
         else openAI(view, type);
       };
     });
+  }
+
+  function openCatalog(type) {
+    openView("manual", `<form><label>食物名稱<input name="query" type="search" placeholder="例如：雞蛋、豆腐，或輸入英文" required></label>
+      <button type="submit">搜尋 USDA 資料庫</button></form>
+      <div data-results role="status"></div>`);
+    get("diaryDialogTitle").textContent = "搜尋食物資料庫";
+    const form = body.querySelector("form");
+    const results = body.querySelector("[data-results]");
+    const aliases = { 雞蛋:"egg", 蛋:"egg", 雞腿:"chicken thigh", 雞胸:"chicken breast", 白飯:"white rice cooked", 地瓜:"sweet potato", 豆腐:"tofu", 牛奶:"milk", 香蕉:"banana", 花椰菜:"broccoli", 鮭魚:"salmon", 燕麥:"oats", 吐司:"bread", 杏仁:"almonds" };
+    let revision = 0;
+    form.onsubmit = async event => {
+      event.preventDefault();
+      const query = form.elements.query.value.trim();
+      if (!query) return;
+      const request = ++revision;
+      results.textContent = "搜尋中…";
+      try {
+        const params = new URLSearchParams({ query: aliases[query] || query, dataType:"SR Legacy", pageSize:"12", api_key:"DEMO_KEY" });
+        const response = await fetch("https://api.nal.usda.gov/fdc/v1/foods/search?" + params, {referrerPolicy:"no-referrer"});
+        if (!response.ok) throw Error(response.status === 429 ? "查詢已達上限，請稍後再試。" : "資料庫目前無法連線。");
+        const { foods = [] } = await response.json();
+        if (!results.isConnected || request !== revision) return;
+        if (!foods.length) { results.textContent = "查無結果，可改用英文名稱搜尋。"; return; }
+        results.innerHTML = `<label>搜尋結果<select data-food>${foods.map((food, i) => `<option value="${i}">${esc(food.description)}</option>`).join("")}</select></label>
+          <form><label>實際食用重量（g）<input name="grams" type="number" value="100" min="0.1" step="any" required></label><button>換算並帶入餐點</button></form>`;
+        results.querySelector("form").onsubmit = e => {
+          e.preventDefault();
+          const food = foods[Number(results.querySelector("select").value)];
+          const grams = Number(e.currentTarget.elements.grams.value);
+          openManual(type, [catalogPortion(food, grams)]);
+        };
+      } catch (error) {
+        if (request === revision && results.isConnected) results.textContent = error.message || "無法查詢，請稍後重試。";
+      }
+    };
   }
 
   async function recentMeals(cutoff, limit) {
