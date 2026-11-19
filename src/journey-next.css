@@ -2,6 +2,11 @@
 .next-stats > div { min-width: 0; padding: 12px; border-radius: 14px; background: #faf6f4; }
 .next-stats strong { display: block; color: #5c4742; font-size: 19px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .next-stats small { display: block; margin-top: 4px; color: #887a75; font-size: 12px; }
+.coach-feedback { margin-top: 18px; padding: 16px; border: 1px solid #eadfe9; border-radius: 16px; background: #fbf8fc; }
+.coach-feedback h3 { margin: 0 0 10px; color: #5f4d66; font-size: 16px; }
+.coach-feedback ul { margin: 0; padding-left: 20px; }
+.coach-feedback li { margin: 7px 0; color: #594f5a; line-height: 1.55; }
+.coach-feedback .muted { margin: 12px 0 0; font-size: 11px; }
 .nutrition-basis { margin: 10px 0; }
 .nutrition-basis-intro, .nutrition-basis-note { color: #81736e; font-size: 13px; }
 .nutrition-basis-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }

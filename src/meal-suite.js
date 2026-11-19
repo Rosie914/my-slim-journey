@@ -174,7 +174,7 @@ function renderDaySummary(meals, selected, goal) {
     <p class="diary-note">已記錄 ${number.format(100 * intake / target)}% · ${intake > target ? "超出 " + number.format(intake - target) + " kcal" : intake === target ? "剛好達到目標" : "距目標 " + number.format(target - intake) + " kcal"}</p>`}` : ""}`;
 }
 
-function renderMeals(meals) {
+function renderMeals(meals, canConfirmPlanned = false) {
   const groups = new Map(Object.keys(types).map(type => [type, []]));
   for (const meal of meals) groups.get(Object.hasOwn(types, meal.meal_type) ? meal.meal_type : "other").push(meal);
   const emptyTypes = [];
@@ -208,6 +208,7 @@ function renderMeals(meals) {
           <small>${meal.source === "planned" ? "預計" : "已記錄"} · ${missingNutrition.length ? "待補 " + missingNutrition.map(key => nutritionLabels[key]).join("、") : mealCalories}</small></span>
         <details class="diary-entry-menu"><summary aria-label="餐點選項">⋯</summary>
           <button type="button" data-meal-action="edit" data-id="${esc(meal.id)}">${missingNutrition.length ? "補齊營養" : "編輯"}</button>
+          ${canConfirmPlanned && meal.source === "planned" ? `<button type="button" data-meal-action="consume" data-id="${esc(meal.id)}">標記已吃</button>` : ""}
           <button type="button" data-meal-action="favorite" data-id="${esc(meal.id)}">加入常吃食物</button>
           <button type="button" data-meal-action="copy" data-id="${esc(meal.id)}">複製到指定日期</button>
           <button type="button" data-meal-action="delete" data-id="${esc(meal.id)}">刪除</button>
@@ -366,7 +367,7 @@ export function initMealSuite(db, uid, config = {}) {
           ? rows
           : rows.filter(meal => meal.source !== "planned");
       get("diaryCopyYesterday").hidden = future(date);
-      get("diaryMeals").innerHTML = renderMeals(meals);
+      get("diaryMeals").innerHTML = renderMeals(meals, date === day());
       get("diarySummary").innerHTML = renderDaySummary(meals, date);
       if (date === day() && config.goal) {
         const goal = await Promise.resolve(config.goal).catch(() => null);
@@ -969,6 +970,28 @@ export function initMealSuite(db, uid, config = {}) {
     const meal = meals.find(entry => entry.id === button.dataset.id);
     if (!meal) return;
     if (button.dataset.mealAction === "edit") return openEdit(meal);
+    if (button.dataset.mealAction === "consume") {
+      if (selected !== day() || meal.source !== "planned") return;
+      busy = true;
+      button.disabled = true;
+      try {
+        const items = (meal.meal_items || []).map(item => Object.fromEntries(
+          ["food_name", "quantity", "serving_weight_g", "nutrition_source", "confidence", ...keys].map(key => [key, item[key]])
+        ));
+        const { error } = await db.rpc("update_meal_with_items", { p_meal: {
+          id: meal.id, meal_type: meal.meal_type, source: "manual", eaten_at: meal.eaten_at,
+          notes: meal.notes || null, photo_path: meal.photo_path || null, items
+        } });
+        if (error) throw error;
+        refresh("已標記為已吃，並納入今日攝取統計。");
+      } catch (error) {
+        showMessage(error.message || "無法更新餐點狀態，請重試。");
+      } finally {
+        busy = false;
+        button.disabled = false;
+      }
+      return;
+    }
     if (button.dataset.mealAction === "favorite") {
       const items = (meal.meal_items || []).filter(item => item.food_name?.trim());
       if (!items.length) return showMessage("這筆餐點沒有可收藏的食物。");

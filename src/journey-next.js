@@ -103,6 +103,54 @@ function renderCoachRecords(meals, activities, goal) {
   <p class="muted">飲食平均按有紀錄的日期計算。活動統計採手動紀錄。</p>`;
 }
 
+function renderCoachFeedback(meals, activities, goal) {
+  const format = new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 0 });
+  const mealDays = new Set(meals.map(meal => tw(meal.eaten_at))).size;
+  const mealTotals = totals(meals);
+  const completeFor = field => meals.length > 0 && meals.every(meal =>
+    (meal.meal_items || []).length > 0 && meal.meal_items.every(item => item[field] != null && Number.isFinite(Number(item[field])))
+  );
+  const notes = [];
+
+  if (!goal.ready) {
+    notes.push("完成個人資料後，Coach 才能把飲食和運動紀錄對照到目前目標。");
+  } else if (mealDays < 4 || !completeFor("calories")) {
+    notes.push(`本週有 ${mealDays}/7 天飲食紀錄${mealDays < 4 ? "；累積至少 4 天完整資料後，再比較平均攝取與目標" : "，但熱量資料不完整，暫不計算平均"}。`);
+  } else {
+    const average = mealTotals.calories / mealDays;
+    const difference = Math.round(average - goal.calorieTarget);
+    if (difference > 100) notes.push(`有紀錄日平均 ${format.format(average)} kcal，比每日目標高 ${format.format(difference)} kcal；先依照原定目標記錄，不需要用單日數字補償。`);
+    else if (difference < -100) notes.push(`有紀錄日平均 ${format.format(average)} kcal，比每日目標低 ${format.format(Math.abs(difference))} kcal；維持你設定的攝取目標，不必再刻意下修。`);
+    else notes.push(`有紀錄日平均 ${format.format(average)} kcal，與每日目標 ${format.format(goal.calorieTarget)} kcal 接近。`);
+  }
+
+  if (goal.ready && mealDays >= 4 && completeFor("protein_g")) {
+    const averageProtein = mealTotals.protein / mealDays;
+    const difference = Math.round(averageProtein - goal.protein);
+    notes.push(difference >= 0
+      ? `有紀錄日平均蛋白質 ${averageProtein.toFixed(1)} g，已達每日目標 ${goal.protein} g。`
+      : `有紀錄日平均蛋白質 ${averageProtein.toFixed(1)} g，距離每日目標 ${goal.protein} g 約差 ${Math.abs(difference)} g。`);
+  } else if (mealDays && !completeFor("protein_g")) {
+    notes.push("部分餐點沒有完整蛋白質資料，暫不推算平均蛋白質。");
+  }
+
+  if (goal.ready && !goal.plannedExtraActivity) {
+    notes.push("目前階段沒有額外運動消耗目標。");
+  } else if (goal.ready && !activities.length) {
+    notes.push(`尚無運動紀錄；目前計畫為每日額外消耗 ${goal.plannedExtraActivity} kcal。未記錄不代表實際消耗為 0。`);
+  } else if (goal.ready) {
+    const recorded = activities.filter(activity => activity.calories_burned != null && Number.isFinite(Number(activity.calories_burned)))
+      .reduce((sum, activity) => sum + num(activity.calories_burned), 0);
+    const expected = goal.plannedExtraActivity * 7;
+    const status = activities.some(activity => activity.calories_burned == null || !Number.isFinite(Number(activity.calories_burned)))
+      ? "；部分活動尚未填消耗熱量，這是已填資料的小計"
+      : "";
+    notes.push(`已記錄運動消耗 ${format.format(recorded)} / 本週計畫 ${format.format(expected)} kcal${status}。`);
+  }
+
+  return `<section class="coach-feedback"><h3>本週個人化回饋</h3><ul>${notes.map(note => `<li>${safe(note)}</li>`).join("")}</ul><p class="muted">依目前階段目標及已儲存紀錄產生的規則式摘要；資料不足時不推測。</p></section>`;
+}
+
 export async function renderCoachGuidance(db, uid, profile, weight) {
   const anchor = document.getElementById("anCoach");
   if (!anchor) return;
@@ -125,10 +173,13 @@ export async function renderCoachGuidance(db, uid, profile, weight) {
   const recordsSummary = mealResult.status === "fulfilled" && activityResult.status === "fulfilled"
     ? renderCoachRecords(mealResult.value, activityResult.value, goal)
     : unavailable;
+  const feedback = mealResult.status === "fulfilled" && activityResult.status === "fulfilled"
+    ? renderCoachFeedback(mealResult.value, activityResult.value, goal)
+    : unavailable;
   const plan = goal.ready
     ? renderNutritionBasis(goal) + goal.warnings.map(warning => `<p class="muted">${safe(warning)}</p>`).join("")
     : `<p class="muted">${safe(goal.reason || "請先補齊個人與體重資料。")}</p>`;
   anchor.innerHTML = `<h3>目前營養估算</h3>${plan}
     <h3>近 14 天體重回顧</h3>${weightSummary}
-    <h3>近 7 天飲食與活動</h3>${recordsSummary}`;
+    <h3>近 7 天飲食與活動</h3>${recordsSummary}${feedback}`;
 }
