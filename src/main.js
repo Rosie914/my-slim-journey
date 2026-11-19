@@ -163,6 +163,18 @@ const homeStyles = `<style>
   .home-number small { font-size:14px; letter-spacing:0; color:#766762; font-weight:600; }
   .home-meter { height:8px; background:#f1ebe8; border-radius:20px; overflow:hidden; }
   .home-meter span { display:block; height:100%; background:#b88691; border-radius:inherit; }
+  .calorie-meter { position:relative; }
+  .calorie-meter .home-meter { display:flex; height:10px; }
+  .calorie-meter .home-meter span { flex:none; border-radius:0; }
+  .calorie-meter .home-meter .calorie-overflow {
+    background:repeating-linear-gradient(135deg, #815461 0 4px, #a06c7b 4px 8px);
+  }
+  .calorie-meter-tick {
+    position:absolute; top:-2px; height:14px; width:2px; left:var(--calorie-goal-stop);
+    transform:translateX(-50%); background:#51403f; border-radius:2px;
+  }
+  .calorie-meter-labels { display:flex; justify-content:space-between; gap:8px; margin-top:5px; }
+
   .home-meter.sage span { background:#7e9e89; }
   .home-meter.lavender span { background:#a399bb; }
   .home-macros { display:grid; gap:10px; margin-top:15px; }
@@ -270,6 +282,24 @@ function homeMeter(label, percent, tone, valueText) {
     aria-valuenow="${value}" aria-valuetext="${valueText}"><span style="width:${value}%"></span></div>`;
 }
 
+function renderCalorieMeter(actual, target) {
+  const percent = Math.max(0, actual / target * 100);
+  const scale = Math.max(125, Math.ceil(percent / 25) * 25);
+  const targetStop = 10000 / scale;
+  const normalWidth = Math.min(percent, 100) * 100 / scale;
+  const extraWidth = Math.max(0, percent - 100) * 100 / scale;
+  const displayPercent = homeNumber.format(percent) + "%";
+  const arialabel = `已攝取 ${homeNumber.format(actual)} kcal，目標 ${homeNumber.format(target)} kcal，為目標的 ${displayPercent}`;
+  return `<div class="calorie-meter" style="--calorie-goal-stop:${targetStop}%">
+    <div class="home-meter" role="img" aria-label="${arialabel}">
+      <span style="width:${normalWidth}%"></span>
+      ${extraWidth > 0 ? `<span class="calorie-overflow" style="width:${extraWidth}%"></span>` : ""}
+    </div>
+    <span class="calorie-meter-tick" aria-hidden="true"></span>
+    <div class="calorie-meter-labels home-note"><span>已攝取 ${displayPercent}</span><span>刻度為目標 100%</span></div>
+  </div>`;
+}
+
 function renderHomeNutrition(goal, totals, date) {
   if (!totals) return '<section class="card"><h2>今日營養攝取</h2><p>飲食紀錄暫時無法載入。</p></section>';
   const remaining = goal.ready ? Math.round(goal.calorieTarget - totals.calories) : null;
@@ -287,7 +317,7 @@ function renderHomeNutrition(goal, totals, date) {
       <div class="home-number">${remaining === null ? actualCalories : homeNumber.format(Math.abs(remaining))} <small>kcal</small></div></div>
       ${goal.ready ? `<div class="home-energy-side"><span class="home-note">已攝取 / 目標</span><b>${actualCalories} / ${targetCalories}</b></div>` : ""}
     </div>
-    ${goal.ready ? homeMeter("今日熱量", totals.calories / goal.calorieTarget * 100, "rose", `${actualCalories} / ${targetCalories} kcal`)
+    ${goal.ready ? renderCalorieMeter(totals.calories, goal.calorieTarget)
       : `<p class="home-note">${escapeHTML(goal.reason || "補齊個人設定後即可顯示每日目標。")}</p>`}
     <div class="home-macros">
       ${macros.map(([label, key, tone]) => {
