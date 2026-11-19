@@ -1,13 +1,11 @@
-import { renderNaturalMeal, initNaturalMeal } from "./natural-meal.js";
+
 import { renderAnalytics, initAnalytics } from "./analytics.js";
 import "./analytics.css";
-import { renderMealHistory, initMealHistory } from "./meal-history.js";
 import { createClient } from "@supabase/supabase-js";
-import "./style.css";
 import { renderNutritionSummary } from "./nutrition.js";
-import { renderMealSuite, initMealSuite } from './meal-suite.js';
-import './meal-suite.css';
-
+import { renderMealSuite, initMealSuite } from "./meal-suite.js";
+import "./meal-suite.css";
+import "./style.css";
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -164,15 +162,10 @@ function renderHome(totals) {
   const remaining = current !== null && stageTarget !== null
     ? Math.max(0, current - stageTarget)
     : null;
-  
-  const nutritionPanel = renderNutritionSummary(
-    profile,
-    current,
-    totals
-  );
-  return `
-        ${nutritionPanel}
 
+  const nutritionPanel = renderNutritionSummary(profile, current, totals);
+  return `
+    ${nutritionPanel}
     <section class="card">
       <p class="eyebrow">TODAY'S NUTRITION SUMMARY</p>
       <h2>${Math.round(totals.calories)} kcal</h2>
@@ -224,155 +217,53 @@ async function showApp() {
     ]);
 
     if (currentTab === "home") {
-      const meals = await getRows("meals", "eaten_at");
-            const todaysMeals = meals.filter(
-        meal =>
-          meal.source !== "planned" &&
-          meal.eaten_at?.slice(0, 10) === today()
-      );
-
-      let items = [];
-
-      if (todaysMeals.length) {
-        const { data, error } = await supabase
-          .from("meal_items")
-          .select("*")
-          .eq("user_id", currentUser.id)
-          .in("meal_id", todaysMeals.map(m => m.id));
-
-        if (error) throw error;
-        items = data || [];
-      }
-
-      const totals = items.reduce((a, item) => ({
-        calories: a.calories + Number(item.calories || 0),
-        protein: a.protein + Number(item.protein_g || 0),
-        carbs: a.carbs + Number(item.carbs_g || 0),
-        fat: a.fat + Number(item.fat_g || 0)
-      }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
-
+      const { data: dailyActual, error: dailyError } = await supabase
+        .from("daily_nutrition_actual")
+        .select("calories,protein_g,carbs_g,fat_g")
+        .eq("user_id", currentUser.id)
+        .eq("meal_date", today())
+        .maybeSingle();
+      if (dailyError) throw dailyError;
+      const totals = {
+        calories: Number(dailyActual?.calories ?? 0),
+        protein: Number(dailyActual?.protein_g ?? 0),
+        carbs: Number(dailyActual?.carbs_g ?? 0),
+        fat: Number(dailyActual?.fat_g ?? 0)
+      };
       content = renderHome(totals);
     }
 
-    
-if (currentTab === "meals") {
-  content = renderMealSuite();
-}
+    if (currentTab === "meals") {
+      content = renderMealSuite();
+    }
 
     if (["weight", "activity", "reports", "coach"].includes(currentTab)) {
-  content = renderAnalytics(currentTab);
-}
+      content = renderAnalytics(currentTab);
+    }
 
     if (currentTab === "settings") {
       content = `
         <section class="card">
           <h2>個人設定</h2>
-          
-<form id="profileForm">
-  <label>顯示名稱
-    <input name="display_name"
-      value="${escapeHTML(profile?.display_name || "")}"
-      placeholder="輸入名稱">
-  </label>
-
-  <label>出生日期
-    <input name="birth_date" type="date"
-      value="${profile?.birth_date ?? ""}" required>
-  </label>
-
-  <label>生理性別
-    <select name="sex" required>
-      <option value="">請選擇</option>
-      <option value="female" ${profile?.sex === "female" ? "selected" : ""}>女性</option>
-      <option value="male" ${profile?.sex === "male" ? "selected" : ""}>男性</option>
-    </select>
-  </label>
-
-  <label>身高（cm）
-    <input name="height_cm" type="number"
-      min="100" max="220" step="0.1"
-      value="${profile?.height_cm ?? ""}" required>
-  </label>
-
-  <label>起始體重（kg）
-    <input name="start_weight_kg" type="number"
-      min="25" max="250" step="0.1"
-      value="${profile?.start_weight_kg ?? ""}" required>
-  </label>
-
-  <label>長期目標體重（kg）
-    <input name="target_weight_kg" type="number"
-      min="25" max="250" step="0.1"
-      value="${profile?.target_weight_kg ?? ""}" required>
-  </label>
-
-  <label>目標體脂率（%）
-    <input name="target_body_fat_pct" type="number"
-      min="5" max="60" step="0.1"
-      value="${profile?.target_body_fat_pct ?? ""}"
-      placeholder="選填">
-  </label>
-
-  <label>活動程度
-    <select name="activity_level" required>
-      <option value="sedentary" ${profile?.activity_level === "sedentary" ? "selected" : ""}>久坐，幾乎沒有運動</option>
-      <option value="light" ${profile?.activity_level === "light" ? "selected" : ""}>輕量活動，每週約 1–3 天</option>
-      <option value="moderate" ${profile?.activity_level === "moderate" ? "selected" : ""}>中度活動，每週約 3–5 天</option>
-      <option value="active" ${profile?.activity_level === "active" ? "selected" : ""}>高度活動，每週約 6–7 天</option>
-      <option value="very_active" ${profile?.activity_level === "very_active" ? "selected" : ""}>非常高活動量</option>
-    </select>
-  </label>
-
-  <label>管理目標
-    <select name="goal_mode" required>
-      <option value="lose" ${(!profile?.goal_mode || profile?.goal_mode === "lose") ? "selected" : ""}>減脂</option>
-      <option value="maintain" ${profile?.goal_mode === "maintain" ? "selected" : ""}>維持體重</option>
-      <option value="gain" ${profile?.goal_mode === "gain" ? "selected" : ""}>增肌</option>
-    </select>
-  </label>
-
-  <label>目標期限
-    <input name="target_date" type="date"
-      value="${profile?.target_date ?? ""}">
-  </label>
-
-  <label>每週預計減重（kg）
-    <input name="weekly_change_kg" type="number"
-      min="0" max="1" step="0.05"
-      value="${profile?.weekly_change_kg ?? 0.25}">
-    <small>減脂模式使用；建議採取循序漸進的速度。</small>
-  </label>
-
-  <h3>每日營養目標（選填）</h3>
-  <p class="muted">留空時會依體重及熱量目標自動計算。</p>
-
-  <label>自訂熱量（kcal）
-    <input name="calorie_target_override" type="number"
-      min="1200" max="5000" step="1"
-      value="${profile?.calorie_target_override ?? ""}">
-  </label>
-
-  <label>蛋白質（g）
-    <input name="protein_target_g" type="number"
-      min="0" max="400" step="1"
-      value="${profile?.protein_target_g ?? ""}">
-  </label>
-
-  <label>碳水（g）
-    <input name="carbs_target_g" type="number"
-      min="0" max="600" step="1"
-      value="${profile?.carbs_target_g ?? ""}">
-  </label>
-
-  <label>脂肪（g）
-    <input name="fat_target_g" type="number"
-      min="0" max="250" step="1"
-      value="${profile?.fat_target_g ?? ""}">
-  </label>
-
-  <button type="submit">儲存個人設定</button>
-</form>
-
+          <form id="profileForm">
+            <label>顯示名稱<input name="display_name" value="${escapeHTML(profile?.display_name || "")}"></label>
+            <label>出生日期<input name="birth_date" type="date" value="${profile?.birth_date ?? ""}" required></label>
+            <label>生理性別<select name="sex" required><option value="">請選擇</option><option value="female" ${profile?.sex === "female" ? "selected" : ""}>女性</option><option value="male" ${profile?.sex === "male" ? "selected" : ""}>男性</option></select></label>
+            <label>身高（cm）<input name="height_cm" type="number" min="100" max="220" step="0.1" value="${profile?.height_cm ?? ""}" required></label>
+            <label>起始體重（kg）<input name="start_weight_kg" type="number" min="25" max="250" step="0.1" value="${profile?.start_weight_kg ?? ""}" required></label>
+            <label>長期目標體重（kg）<input name="target_weight_kg" type="number" min="25" max="250" step="0.1" value="${profile?.target_weight_kg ?? ""}" required></label>
+            <label>目標體脂率（%）<input name="target_body_fat_pct" type="number" min="5" max="60" step="0.1" value="${profile?.target_body_fat_pct ?? ""}"></label>
+            <label>活動程度<select name="activity_level" required><option value="sedentary" ${profile?.activity_level === "sedentary" ? "selected" : ""}>久坐，幾乎沒有運動</option><option value="light" ${profile?.activity_level === "light" ? "selected" : ""}>輕量活動，每週約 1–3 天</option><option value="moderate" ${profile?.activity_level === "moderate" ? "selected" : ""}>中度活動，每週約 3–5 天</option><option value="active" ${profile?.activity_level === "active" ? "selected" : ""}>高度活動，每週約 6–7 天</option><option value="very_active" ${profile?.activity_level === "very_active" ? "selected" : ""}>非常高活動量</option></select></label>
+            <label>管理目標<select name="goal_mode" required><option value="lose" ${(!profile?.goal_mode || profile?.goal_mode === "lose") ? "selected" : ""}>減脂</option><option value="maintain" ${profile?.goal_mode === "maintain" ? "selected" : ""}>維持體重</option><option value="gain" ${profile?.goal_mode === "gain" ? "selected" : ""}>增肌</option></select></label>
+            <label>目標期限<input name="target_date" type="date" value="${profile?.target_date ?? ""}"></label>
+            <label>每週預計減重（kg）<input name="weekly_change_kg" type="number" min="0" max="1" step="0.05" value="${profile?.weekly_change_kg ?? 0.25}"><small>減脂模式使用；建議採取循序漸進的速度。</small></label>
+            <h3>每日營養目標（選填）</h3><p class="muted">留空時會依體重及熱量目標自動計算。</p>
+            <label>自訂熱量（kcal）<input name="calorie_target_override" type="number" min="1200" max="5000" step="1" value="${profile?.calorie_target_override ?? ""}"></label>
+            <label>蛋白質（g）<input name="protein_target_g" type="number" min="0" max="400" step="1" value="${profile?.protein_target_g ?? ""}"></label>
+            <label>碳水（g）<input name="carbs_target_g" type="number" min="0" max="600" step="1" value="${profile?.carbs_target_g ?? ""}"></label>
+            <label>脂肪（g）<input name="fat_target_g" type="number" min="0" max="250" step="1" value="${profile?.fat_target_g ?? ""}"></label>
+            <button type="submit">儲存個人設定</button>
+          </form>
           <p class="muted">目前體重會自動讀取最新一筆體重紀錄。</p>
         </section>
 
@@ -440,26 +331,22 @@ if (currentTab === "meals") {
       <button id="logout" class="logout">登出</button>
     </header>
     ${content}
-<nav>
-  <button data-tab="home">首頁</button>
-  <button data-tab="meals">飲食</button>
-  <button data-tab="weight">體重</button>
-  <button data-tab="activity">運動</button>
-  <button data-tab="reports">週報</button>
-  <button data-tab="coach">Coach</button>
-  <button data-tab="settings">設定</button>
-</nav>
+    <nav>
+      <button data-tab="home">首頁</button>
+      <button data-tab="meals">飲食</button>
+      <button data-tab="weight">體重</button>
+      <button data-tab="activity">運動</button>
+      <button data-tab="reports">週報</button>
+      <button data-tab="coach">Coach</button>
+      <button data-tab="settings">設定</button>
+    </nav>
   `;
+
   if (["weight", "activity", "reports", "coach"].includes(currentTab)) {
-    initAnalytics(
-      supabase,
-      currentUser.id,
-      currentTab,
-      () => showApp()
-    ).catch(error => {
-      alert(`載入失敗：${error.message}`);
-    });
+    initAnalytics(supabase, currentUser.id, currentTab, () => showApp())
+      .catch(error => alert(`載入失敗：${error.message}`));
   }
+
   document.querySelectorAll("[data-tab]").forEach(button => {
     button.classList.toggle("active", button.dataset.tab === currentTab);
     button.onclick = () => {
@@ -481,36 +368,29 @@ if (currentTab === "meals") {
       event.preventDefault();
       const f = new FormData(profileForm);
 
-      
-const optionalNumber = name => {
-  const value = f.get(name);
-  return value === "" || value === null
-    ? null
-    : Number(value);
-};
-
-const { error } = await supabase
-  .from("profiles")
-  .upsert({
-    id: currentUser.id,
-    display_name: f.get("display_name"),
-    birth_date: f.get("birth_date") || null,
-    sex: f.get("sex"),
-    height_cm: Number(f.get("height_cm")),
-    start_weight_kg: Number(f.get("start_weight_kg")),
-    target_weight_kg: Number(f.get("target_weight_kg")),
-    target_body_fat_pct: optionalNumber("target_body_fat_pct"),
-    activity_level: f.get("activity_level"),
-    goal_mode: f.get("goal_mode"),
-    target_date: f.get("target_date") || null,
-    weekly_change_kg: optionalNumber("weekly_change_kg"),
-    calorie_target_override: optionalNumber("calorie_target_override"),
-    protein_target_g: optionalNumber("protein_target_g"),
-    carbs_target_g: optionalNumber("carbs_target_g"),
-    fat_target_g: optionalNumber("fat_target_g"),
-    updated_at: new Date().toISOString()
-  }, { onConflict: "id" });
-
+      const optionalNumber = name => {
+        const value = f.get(name);
+        return value === "" || value === null ? null : Number(value);
+      };
+      const { error } = await supabase.from("profiles").upsert({
+        id: currentUser.id,
+        display_name: f.get("display_name"),
+        birth_date: f.get("birth_date") || null,
+        sex: f.get("sex"),
+        height_cm: Number(f.get("height_cm")),
+        start_weight_kg: Number(f.get("start_weight_kg")),
+        target_weight_kg: Number(f.get("target_weight_kg")),
+        target_body_fat_pct: optionalNumber("target_body_fat_pct"),
+        activity_level: f.get("activity_level"),
+        goal_mode: f.get("goal_mode"),
+        target_date: f.get("target_date") || null,
+        weekly_change_kg: optionalNumber("weekly_change_kg"),
+        calorie_target_override: optionalNumber("calorie_target_override"),
+        protein_target_g: optionalNumber("protein_target_g"),
+        carbs_target_g: optionalNumber("carbs_target_g"),
+        fat_target_g: optionalNumber("fat_target_g"),
+        updated_at: new Date().toISOString()
+      }, { onConflict: "id" });
 
       if (error) return showMessage(error.message);
 
@@ -518,7 +398,8 @@ const { error } = await supabase
       await showApp();
     };
   }
-    const stageForm = document.querySelector("#stageForm");
+
+  const stageForm = document.querySelector("#stageForm");
 
   if (stageForm) {
     stageForm.onsubmit = async event => {
@@ -589,11 +470,11 @@ const { error } = await supabase
       };
     });
   }
-  
+
   if (currentTab === "meals") {
     initMealSuite(supabase, currentUser.id, () => Promise.resolve());
-  }
-}
+  }}
+
 async function refresh() {
   const { data } = await supabase.auth.getSession();
   currentUser = data.session?.user || null;
