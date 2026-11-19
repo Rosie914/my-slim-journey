@@ -432,7 +432,7 @@ async function showApp() {
       const payload = {
         user_id: currentUser.id,
         stage_name: f.get("stage_name"),
-        target_weight_kg: Number(stages.length ? [...stages].sort((a,b)=>a.target_date.localeCompare(b.target_date)).at(-1).target_weight_kg : (profile?.target_weight_kg ?? f.get("start_weight_kg"))),
+        target_weight_kg: Number(f.get("target_weight_kg")),
         target_date: f.get("target_date"),
         sort_order: stageId
           ? stages.find(s => s.id === stageId)?.sort_order || stages.length + 1
