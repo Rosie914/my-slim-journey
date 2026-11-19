@@ -184,9 +184,11 @@ export function renderMealSuite() {
       <p id="diaryMessage" class="diary-note" role="status" hidden></p>
       <div id="diaryCopy" hidden></div>
       <div id="diarySummary"></div>
-      <button type="button" id="diaryCopyYesterday" class="diary-link" hidden>複製前一天餐點</button>
-      <button type="button" id="diaryCopyRecent" class="diary-link">複製最近一餐</button>
       <div id="diaryMeals"></div>
+      <details><summary>複製餐點</summary>
+        <button type="button" id="diaryCopyRecent" class="diary-link">複製最近一餐</button>
+        <button type="button" id="diaryCopyYesterday" class="diary-link" hidden>選取前一天餐點</button>
+      </details>
     </section>
     <dialog id="diaryDialog" aria-labelledby="diaryDialogTitle">
       <div class="diary-dialog-head">
@@ -392,19 +394,32 @@ export function initMealSuite(db, uid, config = {}) {
 
   function openMenu(type = "") {
     openView("menu", `<div class="diary-methods">
-      ${["text", "photo", "manual", "favorites"].map(view => `<button type="button" data-method="${view}">${methodNames[view]} <span aria-hidden="true">›</span></button>`).join("")}
-      <button type="button" data-method="catalog">搜尋食物資料庫</button>
-      <button type="button" data-method="history">搜尋吃過的食物</button>
+      ${["text", "photo", "manual"].map(view => `<button type="button" data-method="${view}">${methodNames[view]} <span aria-hidden="true">›</span></button>`).join("")}
     </div>`);
     body.querySelectorAll("[data-method]").forEach(button => {
       button.onclick = () => {
         const view = button.dataset.method;
-        if (view === "manual") openManual(type);
-        else if (view === "catalog") openCatalog(type);
-        else if (view === "history") void openFoodHistory(type);
-        else if (view === "favorites") void openFavorites(type);
+        if (view === "manual") openManualSources(type);
         else openAI(view, type);
       };
+    });
+  }
+
+  function openManualSources(type) {
+    openView("manual", `<div class="diary-methods">
+      <button type="button" data-source="blank">直接填寫</button>
+      <button type="button" data-source="catalog">搜尋食物資料庫</button>
+      <button type="button" data-source="history">搜尋吃過的食物</button>
+      <button type="button" data-source="favorites">常吃食物</button>
+      <button type="button" data-source="back" class="diary-link">返回記錄方式</button>
+    </div>`);
+    const actions = {
+      blank: () => openManual(type), catalog: () => openCatalog(type),
+      history: () => openFoodHistory(type), favorites: () => openFavorites(type),
+      back: () => openMenu(type)
+    };
+    body.querySelectorAll("[data-source]").forEach(button => {
+      button.onclick = actions[button.dataset.source];
     });
   }
 
@@ -423,13 +438,39 @@ export function initMealSuite(db, uid, config = {}) {
       const expanded = basket.querySelector("details")?.open;
       basket.hidden = portions.length === 0;
       basket.innerHTML = `<h3>這一餐的食材</h3>${portions.map((item, i) =>
-        `<div class="diary-entry"><span>${esc(item.food_name)} · ${esc(item.quantity)}</span>
-        <button type="button" class="diary-link" aria-label="移除 ${esc(item.food_name)}" data-remove="${i}">移除</button></div>`
+        `<div class="diary-entry"><label>${esc(item.food.description)}（g）<input data-grams="${i}" type="number" min="0.1" step="any" value="${esc(item.grams)}"></label>
+        <button type="button" class="diary-link" aria-label="移除 ${esc(item.food.description)}" data-remove="${i}">移除</button></div>`
       ).join("")}<details ${expanded ? "open" : ""}><summary>自煮分裝（等份）</summary>
         <label>整鍋共幾份<input data-servings type="number" step="any" min="0.01" value="${esc(total)}"></label>
         <label>這餐吃幾份<input data-eaten type="number" step="any" min="0.01" value="${esc(eaten)}"></label>
       </details><p data-split-status role="status"></p><button type="button" data-review>確認 ${portions.length} 項食材與餐別</button>`;
+      updatePreview();
     }
+    function selectedPortions() {
+      const items = portions.map(({food, grams}) => {
+        if (!Number.isFinite(Number(grams)) || Number(grams) < 0.1) throw Error("每項食材請填至少 0.1 g。");
+        return catalogPortion(food, Number(grams));
+      });
+      return splitRecipe(items, Number(basket.querySelector("[data-servings]").value), Number(basket.querySelector("[data-eaten]").value));
+    }
+    function updatePreview() {
+      const status = basket.querySelector("[data-split-status]");
+      const review = basket.querySelector("[data-review]");
+      try {
+        const items = selectedPortions();
+        const total = (field, unit) => items.some(item => item[field] == null) ? "資料不完整" :
+          number.format(items.reduce((sum, item) => sum + item[field], 0)) + " " + unit;
+        status.textContent = `我的這一份 · 熱量 ${total("calories", "kcal")} · 蛋白質 ${total("protein_g", "g")}`;
+        review.disabled = !items.length;
+      } catch (error) {
+        status.textContent = error.message;
+        review.disabled = true;
+      }
+    }
+    basket.oninput = event => {
+      if (event.target.hasAttribute("data-grams")) portions[Number(event.target.dataset.grams)].grams = event.target.value;
+      updatePreview();
+    };
     basket.onclick = event => {
       const remove = event.target.closest("[data-remove]");
       if (remove) {
@@ -437,9 +478,7 @@ export function initMealSuite(db, uid, config = {}) {
         drawBasket();
       } else if (event.target.closest("[data-review]") && portions.length) {
         try {
-          const total = Number(basket.querySelector("[data-servings]").value);
-          const eaten = Number(basket.querySelector("[data-eaten]").value);
-          openManual(type, splitRecipe(portions, total, eaten));
+          openManual(type, selectedPortions());
         } catch (error) {
           basket.querySelector("details").open = true;
           basket.querySelector("[data-split-status]").textContent = error.message;
@@ -468,7 +507,7 @@ export function initMealSuite(db, uid, config = {}) {
           const food = foods[Number(results.querySelector("select").value)];
           const grams = Number(e.currentTarget.elements.grams.value);
           if (!Number.isFinite(grams) || grams <= 0) return;
-          portions.push(catalogPortion(food, grams));
+          portions.push({food, grams});
           drawBasket();
           results.textContent = "已加入，可繼續搜尋或確認餐點。";
           form.elements.query.select();
