@@ -19,6 +19,7 @@ const supabase = createClient(
 const app = document.querySelector("#app");
 
 let currentUser = null;
+let appRenderGeneration = 0;
 let settingsReturnTab = "home";
 let passwordRecovery = false;
 const appTabs = ["home", "meals", "activity", "weight", "reports", "coach", "settings"];
@@ -622,7 +623,9 @@ function renderAppShell(content) {
 }
 
 async function showApp() {
+  const generation = ++appRenderGeneration;
   if (!currentUser) return showLogin();
+  const renderUserId = currentUser.id;
 
   let content = "";
 
@@ -632,6 +635,7 @@ async function showApp() {
       loadStages(),
       loadLatestWeight()
     ]);
+    if (generation !== appRenderGeneration || currentUser?.id !== renderUserId) return;
 
     if (currentTab === "home") {
       const date = homeDate.format(new Date());
@@ -641,6 +645,7 @@ async function showApp() {
         loadNutritionTrend(supabase, currentUser.id, date),
         loadHomeActivityCalories(currentUser.id, date)
       ]);
+      if (generation !== appRenderGeneration || currentUser?.id !== renderUserId) return;
       content = renderHome(meals.value ?? null, weights.value ?? null, date, trend.value, activity.value);
     }
 
@@ -724,6 +729,7 @@ async function showApp() {
     }
 
   } catch (error) {
+    if (generation !== appRenderGeneration || currentUser?.id !== renderUserId) return;
     content = `
       <section class="card">
         讀取失敗：${escapeHTML(error.message)}
@@ -731,6 +737,7 @@ async function showApp() {
     `;
   }
 
+  if (generation !== appRenderGeneration || currentUser?.id !== renderUserId) return;
   app.innerHTML = renderAppShell(content);
 
   const analyticsTab = currentTab;
