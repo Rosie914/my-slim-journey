@@ -356,9 +356,21 @@ nav button.active {
 .settings-panel-body { padding: 2px 20px 20px; }
 .stage-row { margin: 12px 0; padding: 14px; border: 1px solid #f0e7e2; border-radius: 14px; background: #fcf9f7; }
 .stage-row h3 { margin: 0 0 6px; color: #58454f; font-size: 15px; }
+.stage-active-tag { display: inline-flex; margin-left: 8px; padding: 3px 8px; border-radius: 999px; color: #674c66; background: #eee5ee; font-size: 10px; font-weight: 650; vertical-align: 2px; }
 .stage-row p { margin: 4px 0; font-size: 13px; }
 .stage-pace { padding: 9px 11px; border-radius: 10px; color: #674c66; background: #f3edf5; font-size: 12px; }
 .stage-row button { width: auto; min-height: 38px; margin: 7px 6px 0 0; padding: 8px 12px; }
+.settings-goal-preview { display: grid; gap: 10px; }
+.settings-goal-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.settings-goal-heading .eyebrow { margin: 0 0 4px; }
+.settings-goal-heading h2 { margin: 0; color: #58454f; font-size: 19px; }
+.settings-goal-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.settings-goal-stats > div { display: grid; gap: 4px; padding: 12px; border-radius: 12px; background: #fcf8fa; }
+.settings-goal-stats span { color: #8a7773; font-size: 12px; }
+.settings-goal-stats b { color: #58454f; font-size: 15px; }
+.settings-goal-preview > .muted { margin: 0; font-size: 12px; line-height: 1.5; }
+.settings-goal-details { padding-top: 9px; border-top: 1px solid #efe7e3; }
+.settings-goal-details > summary { color: #674c66; font-weight: 650; cursor: pointer; }
 
 @media (max-width: 420px) {
   body { padding-inline: 12px; }

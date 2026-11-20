@@ -520,12 +520,11 @@ async function loadHomeActivityCalories(userId, date) {
     if (data.length < pageSize) {
       const dailySummary = entries.find(entry => entry.activity_type === "Apple 健康每日摘要");
       const workouts = entries.filter(entry => entry.activity_type !== "Apple 健康每日摘要");
-      const calorieRows = workouts.filter(entry => entry.calories_burned !== null);
       const stepRows = workouts.filter(entry => entry.steps !== null);
       return {
         calories: dailySummary?.calories_burned != null
           ? Number(dailySummary.calories_burned)
-          : calorieRows.length ? calorieRows.reduce((sum, entry) => sum + Number(entry.calories_burned), 0) : null,
+          : null,
         steps: dailySummary?.steps != null
           ? Number(dailySummary.steps)
           : stepRows.length ? stepRows.reduce((sum, entry) => sum + Number(entry.steps), 0) : null
@@ -821,6 +820,12 @@ async function showApp() {
     ]);
     if (generation !== appRenderGeneration || currentUser?.id !== renderUserId) return;
 
+    let settingsWeightTrend = null;
+    if (currentTab === "settings") {
+      settingsWeightTrend = await loadNutritionTrend(supabase, currentUser.id, homeDate.format(new Date())).catch(() => null);
+      if (generation !== appRenderGeneration || currentUser?.id !== renderUserId) return;
+    }
+
     if (currentTab === "home") {
       const date = homeDate.format(new Date());
       const [meals, weights, trend, activity] = await Promise.allSettled([
@@ -845,12 +850,14 @@ async function showApp() {
       const orderedStages = [...stages].sort((a, b) => a.target_date.localeCompare(b.target_date));
       const firstWeight = Number(latestWeight?.weight_kg) || Number(profile?.start_weight_kg);
       const firstDate = homeDate.format(new Date());
+      const nutritionPreview = calculateNutrition({ ...profile, _stages: stages, _weightTrend: settingsWeightTrend }, firstWeight);
+      const activeStage = orderedStages.find(stage => stage.target_date >= firstDate && Number(stage.target_weight_kg) > 0);
       const stageRows = orderedStages.map((stage, index) => {
         const previous = orderedStages[index - 1];
         const fromWeight = previous ? Number(previous.target_weight_kg) : firstWeight;
         const fromDate = previous ? previous.target_date : firstDate;
         return `<div class="stage-row">
-          <h3>${escapeHTML(stage.stage_name)}</h3>
+          <h3>${escapeHTML(stage.stage_name)}${activeStage?.id === stage.id ? '<span class="stage-active-tag">目前套用</span>' : ''}</h3>
           <p>目標：${Number(stage.target_weight_kg).toFixed(1)} kg · ${escapeHTML(stage.target_date.replaceAll("-", "/"))}</p>
           <p class="stage-pace">${escapeHTML(stagePace(fromWeight, fromDate, stage.target_weight_kg, stage.target_date))}</p>
           <button type="button" class="edit-stage" data-id="${escapeHTML(stage.id)}">修改</button>
@@ -880,6 +887,22 @@ async function showApp() {
           </form>
           <p class="muted">目前體重會自動讀取最新一筆體重紀錄。</p></div>
         </details>
+
+        <section class="card settings-goal-preview">
+          <div class="settings-goal-heading"><div><p class="eyebrow">TODAY'S PLAN</p><h2>目前營養目標</h2></div>
+            ${nutritionPreview.ready ? `<span class="nutrition-goal-tag">${nutritionPreview.manual ? "手動熱量" : "階段自動"}</span>` : ""}</div>
+          ${nutritionPreview.ready ? `<div class="settings-goal-stats">
+            <div><span>每日熱量</span><b>${nutritionPreview.calorieTarget.toLocaleString("zh-TW")} kcal</b></div>
+            <div><span>蛋白質</span><b>${nutritionPreview.protein} g</b></div>
+            <div><span>碳水</span><b>${nutritionPreview.carbs} g</b></div>
+            <div><span>脂肪</span><b>${nutritionPreview.fat} g</b></div>
+          </div>
+          <p class="muted">${nutritionPreview.stageName ? `套用階段「${escapeHTML(nutritionPreview.stageName)}」：${nutritionPreview.targetWeight} kg · ${escapeHTML(nutritionPreview.targetDate)}，剩 ${nutritionPreview.daysRemaining} 天。` : "沒有進行中的階段，減脂模式會以維持熱量作為估算。"}</p>
+          ${nutritionPreview.manual ? '<p class="muted">目前自訂熱量會覆蓋階段自動熱量；清空「自訂熱量」並儲存即可恢復連動。</p>' : `<p class="muted">自動熱量參考 ${nutritionPreview.automaticTarget} kcal；依個人資料、目前體重與近期體重趨勢估算。</p>`}
+          ${nutritionPreview.warnings.map(warning => `<p class="muted" role="status">${escapeHTML(warning)}</p>`).join("")}
+          <details class="settings-goal-details"><summary>查看計算依據</summary>${renderNutritionBasis(nutritionPreview)}</details>`
+          : `<p class="muted">${escapeHTML(nutritionPreview.reason || `補齊${nutritionPreview.missing.map(escapeHTML).join("、")}後即可預覽目標。`)}</p>`}
+        </section>
 
         <details class="card settings-panel">
           <summary><span>目標階段</span><small>${stages.length ? `${stages.length} 個階段` : "尚未設定"}</small></summary>
@@ -928,6 +951,7 @@ async function showApp() {
   const analyticsUser = currentUser.id;
   const nutritionProfile = { ...profile, _stages: stages };
   const analyticsTasks = {
+    activity: () => initAnalytics(supabase, analyticsUser, analyticsTab),
     weight: async () => {
       await initAnalytics(supabase, analyticsUser, analyticsTab);
       if (currentTab === analyticsTab) await renderWeightInsights(supabase, analyticsUser, nutritionProfile);
