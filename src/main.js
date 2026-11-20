@@ -1,6 +1,6 @@
 
 import { renderAnalytics, initAnalytics } from "./analytics.js";
-import { renderWeightInsights, renderReportInsights, renderActivityInsights } from "./insights.js";
+import { renderWeightInsights, renderReportInsights } from "./insights.js";
 import "./insights.css";
 import "./journey-next.css";
 import { renderCoachGuidance, loadNutritionTrend } from "./journey-next.js";
@@ -931,10 +931,6 @@ async function showApp() {
     weight: async () => {
       await initAnalytics(supabase, analyticsUser, analyticsTab);
       if (currentTab === analyticsTab) await renderWeightInsights(supabase, analyticsUser, nutritionProfile);
-    },
-    activity: async () => {
-      await initAnalytics(supabase, analyticsUser, analyticsTab);
-      if (currentTab === analyticsTab) await renderActivityInsights(supabase, analyticsUser);
     },
     reports: () => renderReportInsights(supabase, analyticsUser, nutritionProfile, latestWeight),
     coach: () => renderCoachGuidance(supabase, analyticsUser, nutritionProfile, latestWeight)

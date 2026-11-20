@@ -11,7 +11,7 @@ const shiftMonth=(month,offset)=>{const d=new Date(`${month}-01T12:00:00`);d.set
 async function rows(db,table,uid,column,from,to){let q=db.from(table).select('*').eq('user_id',uid).order(column,{ascending:false}).limit(500);if(from)q=q.gte(column,from);if(to)q=q.lt(column,to);const {data,error}=await q;if(error)throw error;return data||[]}
 export function renderAnalytics(tab){
  if(tab==='weight')return `<section class="card an-activity-calendar-card"><div class="an-calendar-toolbar"><button type="button" id="anWeightPrevious" aria-label="上一個月">‹</button><button type="button" id="anWeightMonth" aria-expanded="true" aria-controls="anWeightCalendar"></button><button type="button" id="anWeightNext" aria-label="下一個月">›</button></div><div id="anWeightCalendar" class="an-calendar-grid" aria-label="選擇體重紀錄日期"></div><div class="an-calendar-footer"><span id="anWeightSelected" aria-live="polite"></span><button type="button" id="anWeightToday">回到今天</button></div><p class="muted an-calendar-legend">● 有體重紀錄</p></section><section class="card"><div class="an-section-head"><h2 id="anWeightDayTitle">當日體重</h2><details id="anWeightEditor" class="an-activity-editor"><summary>＋ 新增體重</summary><form id="anWeightForm" class="an-form an-weight-form"><label>體重（kg）<input name="weight_kg" type="number" min="25" max="250" step="0.1" required></label><label>日期<input name="logged_at" type="date" required readonly></label><label>備註（選填）<input name="notes" maxlength="300" placeholder="例如：起床、上完廁所後"></label><button type="submit">儲存體重</button><button type="button" id="anWeightCancel" class="an-secondary" hidden>取消修改</button><p id="anWeightStatus" class="muted" role="status"></p></form></details></div><div id="anWeightStats" class="an-stats an-weight-stats"></div><div id="anWeightHistory"></div></section><section class="card"><details id="anWeightTrend"><summary>查看體重折線趨勢</summary><div class="an-section-head"><h3>最近紀錄</h3><span id="anWeightCount" class="muted"></span></div><div id="anWeightChart" class="an-chart-wrap"><p class="muted">讀取中…</p></div></details><p class="muted">單日體重波動不代表脂肪增減，請搭配長期趨勢觀察。</p></section>`;
- if(tab==='activity')return `<section class="card an-activity-calendar-card"><div class="an-calendar-toolbar"><button type="button" id="anActivityPrevious" aria-label="上一個月">‹</button><button type="button" id="anActivityMonth" aria-expanded="true" aria-controls="anActivityCalendar"></button><button type="button" id="anActivityNext" aria-label="下一個月">›</button></div><div id="anActivityMonthStats" class="an-stats an-activity-month-stats"></div><div id="anActivityCalendar" class="an-calendar-grid" aria-label="選擇運動日期"></div><div class="an-calendar-footer"><span id="anActivitySelected" aria-live="polite"></span><button type="button" id="anActivityToday">回到今天</button></div><p class="muted an-calendar-legend">● 有運動紀錄</p></section><section class="card"><div class="an-section-head"><h2 id="anActivityDayTitle">當日運動</h2><details id="anActivityEditor" class="an-activity-editor"><summary>＋ 新增運動</summary><form id="anActivityForm" class="an-form"><label>活動類型<input name="activity_type" required maxlength="80" placeholder="例如：快走、飛輪、重量訓練"></label><label>日期<input name="logged_at" type="date" required readonly></label><label>時間（分鐘）<input name="duration_minutes" type="number" min="1" max="1440" value="30" required></label><label>消耗熱量（kcal，選填）<input name="calories_burned" type="number" min="0" step="1"></label><label>步數（選填）<input name="steps" type="number" min="0" step="1"></label><label>備註（選填）<input name="notes" maxlength="300" placeholder="例如：輕鬆強度"></label><button type="submit">儲存活動</button><button type="button" id="anActivityCancel" class="an-secondary" hidden>取消修改</button><p id="anActivityStatus" class="muted" role="status"></p></form></details></div><div id="anActivityStats" class="an-stats"></div><div id="anActivityHistory"></div></section>`;
+ if(tab==='activity')return `<section class="card an-activity-calendar-card"><div class="an-calendar-toolbar"><button type="button" id="anActivityPrevious" aria-label="上一個月">‹</button><button type="button" id="anActivityMonth" aria-expanded="true" aria-controls="anActivityCalendar"></button><button type="button" id="anActivityNext" aria-label="下一個月">›</button></div><div id="anActivityCalendar" class="an-calendar-grid" aria-label="選擇運動日期"></div><div class="an-calendar-footer"><span id="anActivitySelected" aria-live="polite"></span><button type="button" id="anActivityToday">回到今天</button></div><p class="muted an-calendar-legend">● 有活動紀錄</p></section><section class="card"><div class="an-section-head"><h2 id="anActivityDayTitle">當日運動</h2><details id="anActivityEditor" class="an-activity-editor"><summary>＋ 新增運動</summary><form id="anActivityForm" class="an-form"><label>活動類型<input name="activity_type" required maxlength="80" placeholder="例如：快走、飛輪、重量訓練"></label><label>日期<input name="logged_at" type="date" required readonly></label><label>時間（分鐘）<input name="duration_minutes" type="number" min="1" max="1440" value="30" required></label><label>消耗熱量（kcal，選填）<input name="calories_burned" type="number" min="0" step="1"></label><label>步數（選填）<input name="steps" type="number" min="0" step="1"></label><label>備註（選填）<input name="notes" maxlength="300" placeholder="例如：輕鬆強度"></label><button type="submit">儲存活動</button><button type="button" id="anActivityCancel" class="an-secondary" hidden>取消修改</button><p id="anActivityStatus" class="muted" role="status"></p></form></details></div><div id="anActivityStats" class="an-stats"></div><div id="anActivityHistory"></div></section><section class="card an-activity-week-card" aria-labelledby="anActivityWeekTitle"><div class="an-section-head"><div><h2 id="anActivityWeekTitle">本週運動</h2><p id="anActivityWeekRange" class="muted"></p></div></div><div id="anActivityWeekStats" class="an-stats an-activity-week-stats"></div><div id="anActivityWeekDays" class="an-activity-week-days" aria-live="polite"></div><p class="muted an-activity-week-note">週統計依目前選取日期所在的週計算。</p></section>`;
  if(tab==='reports')return `<section class="card"><h2>每週回顧</h2><label>選擇週一日期<input id="anWeekStart" type="date" value="${weekStart(localDate())}"></label><div id="anReport" class="an-report"><p class="muted">讀取中…</p></div></section>`;
  if(tab==='coach')return `<section class="card"><h2>Journey Coach</h2><p class="muted">根據你已儲存的紀錄整理趨勢，不會把單日體重或熱量當成診斷。</p><div id="anCoach" class="an-coach"><p class="muted">正在整理近期紀錄…</p></div></section>`;
  return '';
@@ -90,29 +90,50 @@ export async function initAnalytics(db,uid,tab){
   await loadMonth();
  }
  if(tab==='activity'){
-  const calendar=$('anActivityCalendar'),monthButton=$('anActivityMonth'),selectedLabel=$('anActivitySelected'),monthStats=$('anActivityMonthStats');
+  const calendar=$('anActivityCalendar'),monthButton=$('anActivityMonth'),selectedLabel=$('anActivitySelected');
   const form=$('anActivityForm'),editor=$('anActivityEditor'),history=$('anActivityHistory'),stats=$('anActivityStats');
+  const weekRange=$('anActivityWeekRange'),weekStats=$('anActivityWeekStats'),weekDays=$('anActivityWeekDays');
   const status=$('anActivityStatus'),today=localDate();
-  let selected=today,month=today.slice(0,7),calendarOpen=true,list=[],request=0,saving=false;
+  let selected=today,month=today.slice(0,7),calendarOpen=true,list=[],request=0,weekRequest=0,saving=false;
   const dateLabel=value=>`${Number(value.slice(5,7))} 月 ${Number(value.slice(8,10))} 日`;
+  const summaryName='Apple 健康每日摘要';
+  const stepsLabel=value=>value==null?'未記錄':`${Math.round(value).toLocaleString('zh-TW')} 步`;
+  function totalsForDay(dayLogs){
+   const dailySummary=dayLogs.find(item=>item.activity_type===summaryName);
+   const workouts=dayLogs.filter(item=>item.activity_type!==summaryName);
+   const stepRows=workouts.filter(item=>item.steps!=null);
+   const steps=dailySummary?.steps!=null?Number(dailySummary.steps):stepRows.length?stepRows.reduce((sum,item)=>sum+n(item.steps),0):null;
+   const calorieRows=dailySummary?.calories_burned!=null?[dailySummary.calories_burned]:workouts.map(item=>item.calories_burned).filter(value=>value!=null);
+   const calories=calorieRows.length?calorieRows.reduce((sum,value)=>sum+n(value),0):null;
+   return {workouts,minutes:workouts.reduce((sum,item)=>sum+n(item.duration_minutes),0),steps,calories};
+  }
+  async function loadWeek(date){
+   const version=++weekRequest,week=weekStart(date),end=shiftDay(week,7),weekdays=['一','二','三','四','五','六','日'];
+   weekRange.textContent=`${week.slice(5).replace('-','/')}–${shiftDay(week,6).slice(5).replace('-','/')}`;
+   weekStats.innerHTML='<p class="muted">讀取本週紀錄…</p>';weekDays.innerHTML='';
+   try{
+    const weekLogs=await rows(db,'activity_logs',uid,'logged_at',dateStart(week),dateStart(end));
+    if(version!==weekRequest||!weekStats.isConnected)return;
+    const days=Array.from({length:7},(_,index)=>{const day=shiftDay(week,index),logs=weekLogs.filter(item=>localDate(item.logged_at)===day);return {day,...totalsForDay(logs)}});
+    const minutes=days.reduce((sum,item)=>sum+item.minutes,0);
+    const stepDays=days.filter(item=>item.steps!=null);
+    const steps=stepDays.reduce((sum,item)=>sum+item.steps,0);
+    const workoutDays=days.filter(item=>item.workouts.length>0).length;
+    weekStats.innerHTML=`<div><b>${minutes}</b><small>運動分鐘</small></div><div><b>${stepDays.length?Math.round(steps).toLocaleString('zh-TW'):'—'}</b><small>紀錄步數</small></div><div><b>${workoutDays}/7</b><small>運動天數</small></div>`;
+    weekDays.innerHTML=days.map((item,index)=>`<div class="an-activity-week-row${item.day===date?' is-selected':''}"><span>${weekdays[index]} ${item.day.slice(5).replace('-','/')}</span><span>${item.workouts.length?`${item.minutes} 分`:'—'}</span><b>${stepsLabel(item.steps)}</b></div>`).join('');
+   }catch(error){if(version===weekRequest&&weekStats.isConnected)weekStats.innerHTML=`<p class="muted">本週紀錄讀取失敗：${esc(error.message)}</p>`}
+  }
   function drawDay(){
    const entries=list.filter(item=>localDate(item.logged_at)===selected);
-   const minutes=entries.reduce((sum,item)=>sum+n(item.duration_minutes),0);
-   const stepValues=entries.map(item=>item.steps);
-   const steps=!entries.length?'0':stepValues.some(value=>value==null)?'部分未填':stepValues.reduce((sum,value)=>sum+n(value),0).toLocaleString('zh-TW');
-   const calorieValues=entries.map(item=>item.calories_burned);
-   const calories=!entries.length?'0':calorieValues.some(value=>value==null)?'資料不完整':String(Math.round(calorieValues.reduce((sum,value)=>sum+n(value),0)));
+   const {workouts,minutes,steps,calories}=totalsForDay(entries);
    $('anActivityDayTitle').textContent=selected===today?'今日運動':`${dateLabel(selected)}運動`;
-   stats.innerHTML=`<div><b>${entries.length}</b><small>次活動</small></div><div><b>${minutes}</b><small>分鐘</small></div><div><b>${calories}${calories==='資料不完整'?'':' kcal'}</b><small>已記錄消耗</small></div><div><b>${steps}</b><small>步數</small></div>`;
-   history.innerHTML=entries.length?entries.map(item=>`<div class="an-history-row"><div><b>${esc(item.activity_type)}</b><small>${n(item.duration_minutes)} 分鐘${item.calories_burned==null?'':`・${n(item.calories_burned)} kcal`}${item.steps==null?'':`・${n(item.steps)} 步`}${item.notes?`・${esc(item.notes)}`:''}</small></div><div class="an-activity-actions"><button type="button" class="an-edit-activity" data-id="${esc(item.id)}">編輯</button><button type="button" class="an-delete-activity" data-id="${esc(item.id)}">刪除</button></div></div>`).join(''):'<p class="muted">這一天還沒有運動紀錄。</p>';
+   stats.innerHTML=`<div><b>${workouts.length}</b><small>次運動</small></div><div><b>${minutes}</b><small>運動分鐘</small></div><div><b>${calories==null?'未記錄':Math.round(calories)}${calories==null?'':' kcal'}</b><small>活動熱量</small></div><div><b>${stepsLabel(steps)}</b><small>步數</small></div>`;
+   history.innerHTML=workouts.length?workouts.map(item=>`<div class="an-history-row"><div><b>${esc(item.activity_type)}</b><small>${n(item.duration_minutes)} 分鐘${item.calories_burned==null?'':`・${n(item.calories_burned)} kcal`}${item.steps==null?'':`・${n(item.steps)} 步`}${item.notes?`・${esc(item.notes)}`:''}</small></div><div class="an-activity-actions"><button type="button" class="an-edit-activity" data-id="${esc(item.id)}">編輯</button><button type="button" class="an-delete-activity" data-id="${esc(item.id)}">刪除</button></div></div>`).join(''):'<p class="muted">這一天沒有運動紀錄；步數與活動熱量會在同步 Apple 健康資料後顯示。</p>';
   }
   function drawCalendar(){
    monthButton.textContent=`${month.slice(0,4)} 年 ${Number(month.slice(5,7))} 月 ${calendarOpen?'▾':'›'}`;
    monthButton.setAttribute('aria-expanded',String(calendarOpen));
    calendar.hidden=!calendarOpen;
-   const monthMinutes=list.reduce((sum,item)=>sum+n(item.duration_minutes),0);
-   const monthCalories=list.some(item=>item.calories_burned==null)?'資料不完整':String(Math.round(list.reduce((sum,item)=>sum+n(item.calories_burned),0)));
-   monthStats.innerHTML=`<div><b>${list.length}</b><small>本月活動次數</small></div><div><b>${monthMinutes}</b><small>累積分鐘</small></div><div><b>${monthCalories}${monthCalories==='資料不完整'?'':' kcal'}</b><small>已記錄消耗</small></div>`;
    $('anActivityToday').hidden=selected===today;
    selectedLabel.textContent=`${selected.replaceAll('-','/')} · ${selected===today?'今天':dateLabel(selected)}`;
    if(calendarOpen)calendar.innerHTML=activityCalendar(month,selected,today,list);
@@ -126,6 +147,7 @@ export async function initAnalytics(db,uid,tab){
     list=await rows(db,'activity_logs',uid,'logged_at',dateStart(`${month}-01`),dateStart(`${shiftMonth(month,1)}-01`));
     if(version!==request||!calendar.isConnected)return;
     drawCalendar();
+    void loadWeek(selected);
     if(focusDate)calendar.querySelector(`[data-date="${focusDate}"]`)?.focus();
    }catch(error){
     if(version!==request||!calendar.isConnected)return;
@@ -137,6 +159,7 @@ export async function initAnalytics(db,uid,tab){
    selected=value;
    form.elements.logged_at.value=selected;
    status.textContent='';
+   void loadWeek(selected);
    const nextMonth=value.slice(0,7);
    if(nextMonth!==month){month=nextMonth;list=[];calendarOpen=true;await loadMonth(focusDate?value:null);return}
    calendarOpen=collapse?false:calendarOpen;
@@ -181,7 +204,7 @@ export async function initAnalytics(db,uid,tab){
   history.onclick=async event=>{
    const edit=event.target.closest('.an-edit-activity'),remove=event.target.closest('.an-delete-activity');
    if(edit){const item=list.find(entry=>String(entry.id)===edit.dataset.id);if(!item)return;form.dataset.editId=item.id;form.elements.activity_type.value=item.activity_type;form.elements.logged_at.value=selected;form.elements.duration_minutes.value=item.duration_minutes??30;form.elements.calories_burned.value=item.calories_burned??'';form.elements.steps.value=item.steps??'';form.elements.notes.value=item.notes??'';form.querySelector('[type="submit"]').textContent='儲存修改';$('anActivityCancel').hidden=false;status.textContent=`正在編輯 ${item.activity_type}`;editor.open=true;form.scrollIntoView({behavior:'smooth',block:'nearest'});return}
-   if(remove){if(!confirm('確定刪除這筆運動紀錄？'))return;remove.disabled=true;try{const {error}=await db.from('activity_logs').delete().eq('id',remove.dataset.id).eq('user_id',uid);if(error)throw error;status.textContent='運動紀錄已刪除。';await loadMonth()}catch(error){status.textContent=`刪除失敗：${error.message}`}finally{remove.disabled=false}}
+   if(remove){if(!confirm('確定刪除這筆運動紀錄？'))return;remove.disabled=true;try{const {error}=await db.from('activity_logs').delete().eq('id',remove.dataset.id).eq('user_id',uid);if(error)throw error;status.textContent='運動紀錄已刪除。';await loadMonth();void loadWeek(selected)}catch(error){status.textContent=`刪除失敗：${error.message}`}finally{remove.disabled=false}}
   };
   await loadMonth();
  }
