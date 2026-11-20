@@ -753,18 +753,26 @@ function renderAppShell(content) {
       <details class="account-data"><summary>資料備份</summary><p>下載你的個人設定、目標階段、飲食、體重、運動與常吃食物紀錄。照片檔案不包含在備份中。</p><button id="exportData" type="button">下載我的資料</button><p id="exportStatus" role="status" aria-live="polite"></p></details>
       <details class="account-data health-sync" id="healthSyncPanel"><summary>Apple 健康自動同步</summary>
         <p>網站不能直接讀取 iPhone「健康」資料。完成捷徑設定後，可同步每日步數、活動熱量與運動項目；資料會寫入你的運動紀錄。</p>
-        <p class="health-sync-notice"><strong>目前進度：</strong>你建立的「Apple Health Steps Test」只會查詢並加總最近 7 天步數，還沒有上傳到 App。請保留它當測試用；不要把 7 天總和當成每日資料，也先不要讓自動化執行它。</p>
-        <ol><li>先按下方按鈕建立同步金鑰，並立即複製保存。金鑰只顯示一次；不要貼到聊天或分享給別人。</li><li>在 iPhone「捷徑」建立真正的同步捷徑：需要逐日整理步數和活動熱量、整理運動項目，再用 POST JSON 傳送。只有「尋找健康樣本」和「計算總和」還不完整。</li><li>先手動成功同步，回到本頁確認出現「最近成功同步」，再設定每日自動化。</li></ol>
+        <p class="health-sync-notice"><strong>目前進度：</strong>你已在「Apple Health Sync」讀到步數。沿用這個捷徑，不必刪除、改名或建立副本；目前仍要把步數整理成逐日資料並上傳到 App，單純顯示或加總步數不會完成同步。</p>
+        <ol><li>先按下方按鈕建立同步金鑰並複製保存。金鑰只顯示一次；不要貼到聊天或分享給別人。</li><li>依照下方步驟修改現有的 <code>Apple Health Sync</code>：保留步數查詢，移除 7 天加總，改為逐日清單並加入上傳。</li><li>手動執行後，只有看到 <code>ok: true</code> 且本頁出現「最近成功同步」，才算完成；之後再設定每日自動化。</li></ol>
         <button id="createHealthSyncToken" type="button">建立捷徑同步金鑰</button>
         <p id="healthSyncStatus" role="status" aria-live="polite"></p>
         <div id="healthSyncTokenList" aria-live="polite"><p>正在讀取同步狀態…</p></div>
-        <details class="health-sync-guide"><summary>同步網址與資料格式</summary>
-          <p>這是捷徑最後的上傳動作設定。你目前的步數測試捷徑還沒有產生下方格式，因此先不要直接加入此動作。</p>
+        <details class="health-sync-guide"><summary>先同步步數：iPhone 捷徑步驟</summary>
+          <ol>
+            <li>在本頁按「建立捷徑同步金鑰」，點「複製金鑰」。這串金鑰等下放進捷徑，不要貼到聊天。</li>
+            <li>在 Shortcuts 打開既有的 <code>Apple Health Sync</code>。沿用這個名稱和捷徑，不要刪除或另建副本。保留 <code>Find Health Samples</code>：<code>Type is Steps</code>、<code>Start Date is in the last 7 days</code>、<code>Group by Day</code>；刪除 <code>Calculate the Sum</code>，因為它會把 7 天合成一個總數。</li>
+            <li>在 <code>Find Health Samples</code> 上方加入空的 <code>List</code>，再加入 <code>Set Variable</code>，命名為 <code>Days</code>，將空清單存入它。把這兩個動作移到查詢步數之前。</li>
+            <li>在查詢步數後加入 <code>Repeat with Each</code>，輸入選 <code>Health Samples</code>。在 Repeat 內依序加入：<code>Get Details of Health Sample</code>（選 <code>Start Date</code>，來源 <code>Repeat Item</code>）；<code>Format Date</code>（日期格式 <code>Custom</code>，格式填 <code>yyyy-MM-dd</code>）；再加入 <code>Get Details of Health Sample</code>（選 <code>Value</code>，來源仍是 <code>Repeat Item</code>）。</li>
+            <li>仍在 Repeat 內加入 <code>Dictionary</code>，建立 <code>date</code>＝格式化日期、<code>steps</code>＝步數 Value；再加入 <code>Add to Variable</code>，選 <code>Days</code>。Repeat 結束後，<code>Quick Look</code> 檢查 Days，應是一日一筆的字典清單。</li>
+            <li>Repeat 後加入 <code>Dictionary</code>：<code>days</code>＝變數 Days；<code>workouts</code>＝空的 <code>List</code>。再加入 <code>Get Contents of URL</code>，URL 與設定見下一段。</li>
+            <li>在 <code>Get Contents of URL</code> 設 <code>Method: POST</code>、<code>Request Body: JSON</code>。Headers 加入 <code>Authorization</code>＝<code>Bearer </code>加上剛複製的金鑰，以及 <code>Content-Type</code>＝<code>application/json</code>。執行一次並允許 Health 權限；成功回應會包含 <code>ok: true</code>。</li>
+          </ol>
+          <p>捷徑中的 <code>Group by Day</code> 需讓每個 Repeat Item 對應一天。若 <code>Get Details of Health Sample</code> 沒有 <code>Start Date</code> 或 <code>Value</code>，先不要上傳，因為輸出格式未符合每日摘要。</p>
           <p>URL：<code>${escapeHTML(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/apple-health-sync`)}</code></p>
-          <p>在「取得 URL 內容」設定：方法 <code>POST</code>、要求本文 <code>JSON</code>。標頭加入 <code>Authorization</code>：<code>Bearer 你的同步金鑰</code>，以及 <code>Content-Type</code>：<code>application/json</code>。</p>
-          <p>本文的 <code>days</code> 必須是逐日資料（日期格式 <code>YYYY-MM-DD</code>），不能把 7 天總步數填在單一天。<code>workouts</code> 可為空陣列；每筆運動的 id 要固定，重送時才能更新同一筆紀錄。</p>
-          <pre>{"days":[{"date":"2026-11-20","steps":8200,"activeCalories":430}],"workouts":[{"id":"戶外步行-20261120T083000-35","name":"戶外步行","startedAt":"2026-11-20T08:30:00+08:00","durationMinutes":35}]}</pre>
-          <p>每日摘要保存步數和活動熱量；運動項目不重複加總熱量。完成真正的逐日資料整理後，才將上傳動作接到捷徑末端。</p>
+          <p>同步只含步數時，本文應是逐日資料，<code>activeCalories</code> 不必填；<code>workouts</code> 可為空陣列。不可將 7 天總步數填在單一天。</p>
+          <pre>{"days":[{"date":"2026-11-20","steps":8200}],"workouts":[]}</pre>
+          <p>確認本頁顯示最近成功同步後，在現有 Automation 的 <code>Run Shortcut</code> 動作中選 <code>Apple Health Sync</code>，設定觸發時間為每日。活動熱量和運動項目可在步數上傳穩定後加入同一個捷徑。</p>
           <p><a href="https://support.apple.com/guide/shortcuts/intro-to-find-and-filter-actions-apd3c845e881/ios" target="_blank" rel="noreferrer">Apple：尋找健康樣本</a> · <a href="https://support.apple.com/guide/shortcuts/apd58d46713f/ios" target="_blank" rel="noreferrer">Apple：用捷徑傳送 API 請求</a> · <a href="https://support.apple.com/guide/shortcuts/apdfbdbd7123/ios" target="_blank" rel="noreferrer">Apple：建立個人自動化</a></p>
         </details>
       </details>
