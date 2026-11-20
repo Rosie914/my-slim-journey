@@ -509,21 +509,28 @@ async function loadHomeWeights(userId, date) {
 async function loadHomeActivityCalories(userId, date) {
   const from = new Date(date + "T00:00:00+08:00").toISOString();
   const to = new Date(shiftHomeDate(date, 1) + "T00:00:00+08:00").toISOString();
-  let calories = null;
-  let steps = null;
+  const entries = [];
   const pageSize = 500;
   for (let offset = 0; ; offset += pageSize) {
     const { data, error } = await supabase.from("activity_logs").select("activity_type,calories_burned,steps")
       .eq("user_id", userId).gte("logged_at", from).lt("logged_at", to)
       .order("id").range(offset, offset + pageSize - 1);
     if (error) throw error;
-    const dailySummary = data.find(entry => entry.activity_type === "Apple 健康每日摘要");
-    const entries = dailySummary ? [dailySummary] : data;
-    for (const entry of entries) {
-      if (entry.calories_burned !== null) calories = (calories ?? 0) + Number(entry.calories_burned);
-      if (entry.steps !== null) steps = (steps ?? 0) + Number(entry.steps);
+    entries.push(...data);
+    if (data.length < pageSize) {
+      const dailySummary = entries.find(entry => entry.activity_type === "Apple 健康每日摘要");
+      const workouts = entries.filter(entry => entry.activity_type !== "Apple 健康每日摘要");
+      const calorieRows = workouts.filter(entry => entry.calories_burned !== null);
+      const stepRows = workouts.filter(entry => entry.steps !== null);
+      return {
+        calories: dailySummary?.calories_burned != null
+          ? Number(dailySummary.calories_burned)
+          : calorieRows.length ? calorieRows.reduce((sum, entry) => sum + Number(entry.calories_burned), 0) : null,
+        steps: dailySummary?.steps != null
+          ? Number(dailySummary.steps)
+          : stepRows.length ? stepRows.reduce((sum, entry) => sum + Number(entry.steps), 0) : null
+      };
     }
-    if (data.length < pageSize) return { calories, steps };
   }
 }
 

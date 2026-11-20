@@ -118,11 +118,26 @@ export async function renderWeightInsights(db, uid, profile) {
  $('anWeightWeeks').onchange = event => { $(chartId).innerHTML = weightChart(weeks.slice(-Number(event.currentTarget.value))); };
 }
 function activityTotal(logs) {
- const stepLogs = logs.filter(log => log.steps != null);
+ const dailySummary = new Map();
+ const byDay = new Map();
+ for (const log of logs) {
+  const day = dateTW(log.logged_at);
+  const rows = byDay.get(day) || [];
+  rows.push(log);
+  byDay.set(day, rows);
+  if (log.activity_type === 'Apple 健康每日摘要') dailySummary.set(day, log);
+ }
+ const stepsByDay = [...byDay].map(([day, rows]) => {
+  const summary = dailySummary.get(day);
+  if (summary?.steps != null) return val(summary.steps);
+  const values = rows.filter(log => log.activity_type !== 'Apple 健康每日摘要' && log.steps != null);
+  return values.length ? values.reduce((sum, log) => sum + val(log.steps), 0) : null;
+ }).filter(value => value != null);
+ const workouts = logs.filter(log => log.activity_type !== 'Apple 健康每日摘要');
  return {
-  count: logs.length,
-  minutes: logs.reduce((sum, log) => sum + val(log.duration_minutes), 0),
-  steps: stepLogs.length ? stepLogs.reduce((sum, log) => sum + val(log.steps), 0) : null
+  count: workouts.length,
+  minutes: workouts.reduce((sum, log) => sum + val(log.duration_minutes), 0),
+  steps: stepsByDay.length ? stepsByDay.reduce((sum, value) => sum + value, 0) : null
  };
 }
 
@@ -146,7 +161,7 @@ function dayBars(days, measure, { target = null, unit = '分' } = {}) {
  }).join('')}</div>`;
 }
 
-const activityQuery = (db, uid, from, to) => db.from('activity_logs').select('logged_at,duration_minutes,steps')
+const activityQuery = (db, uid, from, to) => db.from('activity_logs').select('activity_type,logged_at,duration_minutes,steps')
  .eq('user_id', uid).gte('logged_at', from).lt('logged_at', to).order('id');
 
 export async function renderActivityInsights(db, uid) {
@@ -160,7 +175,9 @@ export async function renderActivityInsights(db, uid) {
  const section = anchor.closest('section');
  insertAfter(section, card(`本週活動 · ${shortDate(week)}–${shortDate(datePlus(week, 6))}`,
   summary(stat(total.count, '活動紀錄'), stat(total.minutes, '累計分鐘'), stat(displaySteps(total.steps), '紀錄步數'))
-  + dayBars(days, 'minutes') + '<p class="muted">步數是活動紀錄中的已填合計。— 代表沒有紀錄。</p>'), 'insightActivity');
+  + '<h4>每日運動分鐘</h4>' + dayBars(days, 'minutes')
+  + '<h4>每日步數</h4>' + dayBars(days, 'steps', { unit: '步' })
+  + '<p class="muted">有 Apple 健康每日摘要時，步數以摘要總數為準；否則加總當日有填寫的活動步數。</p>'), 'insightActivity');
  section.before($('insightActivity'));
  anchor.style.display = 'none';
 }
@@ -181,13 +198,17 @@ function reportStats(week, meals, weights, activities) {
   const day = datePlus(week, index);
   const dayMeals = theseMeals.filter(meal => dateTW(meal.eaten_at) === day);
   const dayActivities = activities.filter(log => dateTW(log.logged_at) === day);
+  const daySummary = dayActivities.find(log => log.activity_type === 'Apple 健康每日摘要');
+  const dayWorkouts = dayActivities.filter(log => log.activity_type !== 'Apple 健康每日摘要');
   const incompleteCalories = dayMeals.some(meal => !(meal.meal_items || []).length || meal.meal_items.some(item => item.calories == null || !Number.isFinite(Number(item.calories))));
   const calories = dayMeals.length ? (incompleteCalories ? null : (mealDays.get(day) ?? 0)) : null;
   const hasActivity = dayActivities.length > 0;
-  const completeBurn = hasActivity && dayActivities.every(log => log.calories_burned != null && Number.isFinite(Number(log.calories_burned)));
-  return { day, calories, calorieState: !dayMeals.length ? 'empty' : incompleteCalories ? 'incomplete' : 'logged', activityMinutes: hasActivity ? dayActivities.reduce((sum, log) => sum + val(log.duration_minutes), 0) : null,
-   burnedCalories: completeBurn ? dayActivities.reduce((sum, log) => sum + val(log.calories_burned), 0) : null,
-   burnState: !hasActivity ? 'empty' : completeBurn ? 'logged' : 'incomplete', activityCount: dayActivities.length, hasActivity };
+  const completeBurn = daySummary?.calories_burned != null || (dayWorkouts.length > 0 && dayWorkouts.every(log => log.calories_burned != null && Number.isFinite(Number(log.calories_burned))));
+  const burnedCalories = daySummary?.calories_burned != null ? val(daySummary.calories_burned)
+   : completeBurn ? dayWorkouts.reduce((sum, log) => sum + val(log.calories_burned), 0) : null;
+  return { day, calories, calorieState: !dayMeals.length ? 'empty' : incompleteCalories ? 'incomplete' : 'logged', activityMinutes: dayWorkouts.length ? dayWorkouts.reduce((sum, log) => sum + val(log.duration_minutes), 0) : null,
+   burnedCalories,
+   burnState: !hasActivity ? 'empty' : completeBurn ? 'logged' : 'incomplete', activityCount: dayWorkouts.length, hasActivity };
  });
  const nutrients = sumItems(theseMeals);
  const nutrientFields = { protein: 'protein_g', carbs: 'carbs_g', fat: 'fat_g' };
@@ -200,8 +221,8 @@ function reportStats(week, meals, weights, activities) {
    ? nutrients.calories / mealDays.size : null,
   weight: weights.get(week) ?? { weight: null, days: 0 },
   activity: activityTotal(activities.filter(log => inWeek(log.logged_at))),
-  activityCalories: activities.filter(log => inWeek(log.logged_at)).length && activities.filter(log => inWeek(log.logged_at)).every(log => log.calories_burned != null && Number.isFinite(Number(log.calories_burned)))
-   ? activities.filter(log => inWeek(log.logged_at)).reduce((sum, log) => sum + val(log.calories_burned), 0) : null
+  activityCalories: daily.filter(day => day.burnState === 'logged').length && daily.every(day => !day.hasActivity || day.burnState === 'logged')
+   ? daily.reduce((sum, day) => sum + val(day.burnedCalories), 0) : null
  };
 }
 
@@ -214,9 +235,9 @@ function reportBody(current, prior, start, isCurrent, calorieTarget = null) {
   <h3>每日攝取熱量</h3>${dayBars(current.daily, 'calories', { target: calorieTarget, unit: 'kcal' })}
   <p class="muted">${calorieTarget ? `刻度線是每日目標 ${Math.round(calorieTarget)} kcal；超出會標示。` : '尚無可用的每日攝取目標。'} — 代表沒有實際飲食紀錄；「資料不完整」會保留空值，不會當成 0。</p>
   <h3>每日運動</h3>${dayBars(current.daily, 'activityMinutes', { unit: '分' })}
-  <h3>每日運動消耗</h3>${dayBars(current.daily, 'burnedCalories', { unit: 'kcal' })}
-  <div class="insight-summary">${stat(current.activityCalories == null ? (current.activity.count ? '資料不完整' : '—') : `${Math.round(current.activityCalories)} kcal`, '本週已記錄運動消耗')}</div>
-  <p class="muted">運動消耗只加總有填寫消耗熱量的活動；「未記錄」代表當天沒有活動，「資料不完整」代表活動未填消耗。</p>
+  <h3>每日活動熱量</h3>${dayBars(current.daily, 'burnedCalories', { unit: 'kcal' })}
+  <div class="insight-summary">${stat(current.activityCalories == null ? (current.activity.count ? '資料不完整' : '—') : `${Math.round(current.activityCalories)} kcal`, '本週已記錄活動熱量')}</div>
+  <p class="muted">Apple 健康每日活動熱量包含日常活動與運動；有每日摘要時以摘要為準，避免和運動紀錄重複加總。「資料不完整」代表部分已記錄活動缺少熱量。</p>
   <h3>與前一週比較</h3><div class="insight-scroll"><table class="insight-table">
    <thead><tr><th>指標</th><th>所選週</th><th>前一週</th><th>變化</th></tr></thead><tbody>
    ${row('飲食紀錄天數', current.mealDays, prior.mealDays)}
@@ -260,7 +281,7 @@ export function renderReportInsights(db, uid, profile = {}, latestWeight = null)
      .eq('user_id', uid).gte('eaten_at', from).lt('eaten_at', to).order('id')),
     all(db.from('weight_logs').select('weight_kg,logged_at').eq('user_id', uid)
      .gte('logged_at', from).lt('logged_at', to).order('logged_at').order('id')),
-    all(db.from('activity_logs').select('logged_at,duration_minutes,steps,calories_burned').eq('user_id', uid).gte('logged_at', from).lt('logged_at', to).order('id'))
+    all(db.from('activity_logs').select('activity_type,logged_at,duration_minutes,steps,calories_burned').eq('user_id', uid).gte('logged_at', from).lt('logged_at', to).order('id'))
    ]);
    if (revision !== request || !document.contains(anchor)) return;
    const now = dateTW();

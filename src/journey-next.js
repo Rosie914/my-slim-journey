@@ -51,14 +51,54 @@ function mondayOf(day) {
   return add(day, -((weekday + 6) % 7));
 }
 
+function summarizeActivities(activities) {
+  const byDay = new Map();
+  for (const item of activities) {
+    const day = tw(item.logged_at);
+    const rows = byDay.get(day) || [];
+    rows.push(item);
+    byDay.set(day, rows);
+  }
+  const days = [...byDay.values()].map(rows => ({
+    summary: rows.find(item => item.activity_type === "Apple 健康每日摘要"),
+    workouts: rows.filter(item => item.activity_type !== "Apple 健康每日摘要")
+  }));
+  const workoutRows = days.flatMap(day => day.workouts);
+  const calorieTotals = days.map(({ summary, workouts }) => {
+    if (summary?.calories_burned != null && Number.isFinite(Number(summary.calories_burned))) {
+      return Number(summary.calories_burned);
+    }
+    if (summary || workouts.length) {
+      if (workouts.length && workouts.every(item => item.calories_burned != null && Number.isFinite(Number(item.calories_burned)))) {
+        return workouts.reduce((sum, item) => sum + num(item.calories_burned), 0);
+      }
+      return null;
+    }
+    return null;
+  });
+  const knownCalories = calorieTotals.filter(value => value != null);
+  const stepTotals = days.map(({ summary, workouts }) => {
+    if (summary?.steps != null && Number.isFinite(Number(summary.steps))) return Number(summary.steps);
+    const stepRows = workouts.filter(item => item.steps != null && Number.isFinite(Number(item.steps)));
+    return stepRows.length ? stepRows.reduce((sum, item) => sum + num(item.steps), 0) : null;
+  }).filter(value => value != null);
+  return {
+    entries: workoutRows.length,
+    minutes: workoutRows.reduce((sum, item) => sum + num(item.duration_minutes), 0),
+    caloriesPartial: knownCalories.reduce((sum, value) => sum + value, 0),
+    calories: days.length && knownCalories.length === days.length
+      ? knownCalories.reduce((sum, value) => sum + value, 0) : null,
+    steps: stepTotals.length ? stepTotals.reduce((sum, value) => sum + value, 0) : null
+  };
+}
+
 function makeReviewSnapshot(weightTrend, meals, activities) {
   const items = meals.flatMap(meal => meal.meal_items || []);
   const daysWithMeals = new Set(meals.map(meal => tw(meal.eaten_at))).size;
   const caloriesComplete = items.length > 0 && items.every(item => item.calories != null && Number.isFinite(Number(item.calories)));
   const proteinComplete = items.length > 0 && items.every(item => item.protein_g != null && Number.isFinite(Number(item.protein_g)));
   const mealTotals = totals(meals);
-  const recordedCalories = activities.length && activities.every(item => item.calories_burned != null && Number.isFinite(Number(item.calories_burned)))
-    ? activities.reduce((sum, item) => sum + num(item.calories_burned), 0) : null;
+  const activitySummary = summarizeActivities(activities);
   const recentWeight = weightTrend?.recent;
   return {
     weightAverageKg: recentWeight?.days >= 3 && Number.isFinite(Number(recentWeight.average))
@@ -67,9 +107,9 @@ function makeReviewSnapshot(weightTrend, meals, activities) {
     daysWithMeals,
     averageCaloriesOnLoggedDays: caloriesComplete && daysWithMeals ? Math.round(mealTotals.calories / daysWithMeals) : null,
     averageProteinOnLoggedDaysG: proteinComplete && daysWithMeals ? Math.round(mealTotals.protein / daysWithMeals) : null,
-    activityEntries: activities.length,
-    activityMinutes: activities.reduce((sum, item) => sum + num(item.duration_minutes), 0),
-    recordedActivityCalories: recordedCalories === null ? null : Math.round(recordedCalories),
+    activityEntries: activitySummary.entries,
+    activityMinutes: activitySummary.minutes,
+    recordedActivityCalories: activitySummary.calories === null ? null : Math.round(activitySummary.calories),
   };
 }
 
@@ -137,11 +177,11 @@ function renderCoachTrend(weights, goal, start, split, end) {
 function renderCoachRecords(meals, activities, goal) {
   const mealDays = new Set(meals.map(meal => tw(meal.eaten_at))).size;
   const sum = totals(meals);
-  const minutes = activities.reduce((total, activity) => total + num(activity.duration_minutes), 0);
-  const stepLogs = activities.filter(activity => activity.steps != null);
-  const steps = stepLogs.reduce((total, activity) => total + num(activity.steps), 0);
-  const burnedCalories = activities.length && activities.every(activity => activity.calories_burned != null && Number.isFinite(Number(activity.calories_burned)))
-    ? new Intl.NumberFormat("zh-TW").format(activities.reduce((total, activity) => total + num(activity.calories_burned), 0))
+  const activitySummary = summarizeActivities(activities);
+  const minutes = activitySummary.minutes;
+  const steps = activitySummary.steps;
+  const burnedCalories = activitySummary.calories != null
+    ? new Intl.NumberFormat("zh-TW").format(activitySummary.calories)
     : activities.length ? "資料不完整" : "—";
   const perDay = value => mealDays ? (value / mealDays).toFixed(0) : "—";
   const format = new Intl.NumberFormat("zh-TW");
@@ -155,10 +195,10 @@ function renderCoachRecords(meals, activities, goal) {
     ${coachStat(perDay(sum.calories), "有紀錄日平均 kcal")}
     ${coachStat(perDay(sum.protein), "有紀錄日平均蛋白質 g")}
     ${coachStat(`${mealDays}/7`, "飲食紀錄天數")}
-    ${coachStat(burnedCalories, "運動消耗 kcal")}
+    ${coachStat(burnedCalories, "本週活動熱量 kcal")}
   </div>${comparison}
-  <p>活動 ${activities.length} 筆 · ${format.format(minutes)} 分鐘 · ${stepLogs.length ? format.format(steps) + " 步" : "步數未記錄"}</p>
-  <p class="muted">飲食平均按有紀錄的日期計算。活動統計採手動紀錄。</p>`;
+  <p>活動 ${activitySummary.entries} 筆 · ${format.format(minutes)} 分鐘 · ${steps == null ? "步數未記錄" : format.format(steps) + " 步"}</p>
+  <p class="muted">飲食平均按有紀錄的日期計算。Apple 健康活動熱量是每日活動總量（包含日常走動與運動），不等同額外運動消耗；摘要優先，避免重複加總。</p>`;
 }
 
 function renderCoachFeedback(meals, activities, goal) {
@@ -192,18 +232,20 @@ function renderCoachFeedback(meals, activities, goal) {
     notes.push("部分餐點沒有完整蛋白質資料，暫不推算平均蛋白質。");
   }
 
-  if (goal.ready && !goal.plannedExtraActivity) {
-    notes.push("目前階段沒有額外運動消耗目標。");
-  } else if (goal.ready && !activities.length) {
-    notes.push(`尚無運動紀錄；目前計畫為每日額外消耗 ${goal.plannedExtraActivity} kcal。未記錄不代表實際消耗為 0。`);
+  const activitySummary = summarizeActivities(activities);
+  const hasDailySummary = activities.some(item => item.activity_type === "Apple 健康每日摘要");
+  if (goal.ready && activitySummary.calories != null) {
+    notes.push(`本週已記錄活動熱量 ${format.format(activitySummary.calories)} kcal；Apple 健康每日活動熱量包含日常活動與運動，不能直接當成額外運動計畫的完成量。`);
+  } else if (goal.ready && (activitySummary.entries || hasDailySummary)) {
+    notes.push(activitySummary.caloriesPartial
+      ? `目前已取得活動熱量小計 ${format.format(activitySummary.caloriesPartial)} kcal，但部分日期缺少資料；Apple 健康每日活動熱量包含日常活動與運動。`
+      : "已讀取步數或運動紀錄；活動熱量尚未同步完整。Apple 健康每日活動熱量包含日常活動與運動，不等同額外運動計畫。"
+    );
   } else if (goal.ready) {
-    const recorded = activities.filter(activity => activity.calories_burned != null && Number.isFinite(Number(activity.calories_burned)))
-      .reduce((sum, activity) => sum + num(activity.calories_burned), 0);
-    const expected = goal.plannedExtraActivity * 7;
-    const status = activities.some(activity => activity.calories_burned == null || !Number.isFinite(Number(activity.calories_burned)))
-      ? "；部分活動尚未填消耗熱量，這是已填資料的小計"
-      : "";
-    notes.push(`已記錄運動消耗 ${format.format(recorded)} / 本週計畫 ${format.format(expected)} kcal${status}。`);
+    notes.push(goal.plannedExtraActivity
+      ? `尚無運動紀錄；目前計畫為每日額外消耗 ${goal.plannedExtraActivity} kcal。未記錄不代表實際消耗為 0。`
+      : "目前階段未設定額外運動消耗目標，也尚無運動紀錄。"
+    );
   }
 
   return `<section class="coach-feedback"><h3>本週個人化回饋</h3><ul>${notes.map(note => `<li>${safe(note)}</li>`).join("")}</ul><p class="muted">依目前階段目標及已儲存紀錄產生的規則式摘要；資料不足時不推測。</p></section>`;
@@ -233,7 +275,7 @@ export async function renderCoachGuidance(db, uid, profile, weight) {
   const [weightResult, mealResult, activityResult, plansResult] = await Promise.allSettled([
     loadNutritionTrend(db, uid, end),
     mealsBetween(db, uid, split, 7),
-    fetchAll(db.from("activity_logs").select("duration_minutes,steps,calories_burned").eq("user_id", uid)
+    fetchAll(db.from("activity_logs").select("activity_type,logged_at,duration_minutes,steps,calories_burned").eq("user_id", uid)
       .gte("logged_at", activityFrom).lt("logged_at", to).order("id")),
     db.from("coach_weekly_plans").select("week_start,generated_at,plan,review_snapshot")
       .eq("user_id", uid).order("week_start", { ascending: false }).limit(8)
@@ -297,6 +339,7 @@ export async function renderCoachGuidance(db, uid, profile, weight) {
       try {
         const meals = mealResult.status === "fulfilled" ? mealResult.value : [];
         const activities = activityResult.status === "fulfilled" ? activityResult.value : [];
+        const activitySummary = summarizeActivities(activities);
         const daysWithMeals = new Set(meals.map(meal => tw(meal.eaten_at))).size;
         const mealItems = meals.flatMap(meal => meal.meal_items || []);
         const caloriesComplete = mealItems.length > 0 && mealItems.every(item => item.calories != null && Number.isFinite(Number(item.calories)));
@@ -329,10 +372,9 @@ export async function renderCoachGuidance(db, uid, profile, weight) {
             daysWithMeals,
             averageCaloriesOnLoggedDays: caloriesComplete && daysWithMeals ? Math.round(totals(meals).calories / daysWithMeals) : null,
             averageProteinOnLoggedDaysG: proteinComplete && daysWithMeals ? Math.round(totals(meals).protein / daysWithMeals) : null,
-            activityEntries: activities.length,
-            activityMinutes: activities.reduce((sum, item) => sum + num(item.duration_minutes), 0),
-            recordedActivityCalories: activities.length && activities.every(item => item.calories_burned != null && Number.isFinite(Number(item.calories_burned)))
-              ? Math.round(activities.reduce((sum, item) => sum + num(item.calories_burned), 0)) : null,
+            activityEntries: activitySummary.entries,
+            activityMinutes: activitySummary.minutes,
+            recordedActivityCalories: activitySummary.calories === null ? null : Math.round(activitySummary.calories),
             recentMeals: meals.slice(0, 10).map(meal => ({
               date: tw(meal.eaten_at),
               mealType: meal.meal_type,
