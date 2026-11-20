@@ -432,7 +432,7 @@ const homeStyles = `<style>
   .home-dashboard dl { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:12px 0 0; }
   .home-dashboard dt { font-size:12px; color:#766762; }
   .home-dashboard dd { font-weight:700; margin:4px 0 0; }
-  .home-exercise-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin:12px 0; }
+  .home-exercise-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin:12px 0; }
   .home-exercise-grid > div { display:grid; gap:4px; padding:12px; border-radius:13px; background:#faf5f4; }
   .home-exercise-grid span { color:#766762; font-size:12px; }
   .home-exercise-grid b { color:#514744; font-size:17px; }
@@ -509,28 +509,35 @@ async function loadHomeWeights(userId, date) {
 async function loadHomeActivityCalories(userId, date) {
   const from = new Date(date + "T00:00:00+08:00").toISOString();
   const to = new Date(shiftHomeDate(date, 1) + "T00:00:00+08:00").toISOString();
-  let total = null;
+  let calories = null;
+  let steps = null;
   const pageSize = 500;
   for (let offset = 0; ; offset += pageSize) {
-    const { data, error } = await supabase.from("activity_logs").select("calories_burned")
+    const { data, error } = await supabase.from("activity_logs").select("activity_type,calories_burned,steps")
       .eq("user_id", userId).gte("logged_at", from).lt("logged_at", to)
       .order("id").range(offset, offset + pageSize - 1);
     if (error) throw error;
-    for (const entry of data) {
-      if (entry.calories_burned !== null) total = (total ?? 0) + Number(entry.calories_burned);
+    const dailySummary = data.find(entry => entry.activity_type === "Apple 健康每日摘要");
+    const entries = dailySummary ? [dailySummary] : data;
+    for (const entry of entries) {
+      if (entry.calories_burned !== null) calories = (calories ?? 0) + Number(entry.calories_burned);
+      if (entry.steps !== null) steps = (steps ?? 0) + Number(entry.steps);
     }
-    if (data.length < pageSize) return total;
+    if (data.length < pageSize) return { calories, steps };
   }
 }
 
 function renderHomeEnergyPlan(goal, recordedActivity) {
   const actual = recordedActivity === undefined ? "暫時無法讀取"
-    : recordedActivity === null ? "尚未記錄" : homeNumber.format(Math.round(recordedActivity)) + " kcal";
+    : recordedActivity?.calories == null ? "尚未記錄" : homeNumber.format(Math.round(recordedActivity.calories)) + " kcal";
+  const steps = recordedActivity === undefined ? "暫時無法讀取"
+    : recordedActivity?.steps == null ? "尚未記錄" : homeNumber.format(Math.round(recordedActivity.steps)) + " 步";
   return `<section class="card">
     <div class="home-row"><h2>今日運動</h2><button type="button" data-tab="activity" class="home-link">記錄運動 ›</button></div>
     <div class="home-exercise-grid">
       <div><span>計畫額外運動</span><b>${goal.ready ? homeNumber.format(goal.plannedExtraActivity) + " kcal" : "—"}</b></div>
       <div><span>已記錄消耗</span><b>${actual}</b></div>
+      <div><span>今日步數</span><b>${steps}</b></div>
     </div>
     <p class="home-note">日常活動已計入每日總消耗；這裡只顯示額外運動計畫與今天的運動紀錄。</p>
   </section>`;
@@ -745,16 +752,19 @@ function renderAppShell(content) {
       </details>
       <details class="account-data"><summary>資料備份</summary><p>下載你的個人設定、目標階段、飲食、體重、運動與常吃食物紀錄。照片檔案不包含在備份中。</p><button id="exportData" type="button">下載我的資料</button><p id="exportStatus" role="status" aria-live="polite"></p></details>
       <details class="account-data health-sync" id="healthSyncPanel"><summary>Apple 健康自動同步</summary>
-        <p>網站不能直接讀取 iPhone「健康」資料。設定 iPhone 捷徑後，可定期同步每日步數、活動熱量與運動項目；匯入資料會寫入你的運動紀錄。</p>
-        <ol><li>建立同步連線並複製一次性金鑰。</li><li>在 iPhone「捷徑」建立流程：讀取健康 App 的步數、活動能量與運動資料，再以 POST JSON 傳送。</li><li>用「每日」個人自動化執行該捷徑。捷徑設定格式見下方。</li></ol>
+        <p>網站不能直接讀取 iPhone「健康」資料。完成捷徑設定後，可同步每日步數、活動熱量與運動項目；資料會寫入你的運動紀錄。</p>
+        <p class="health-sync-notice"><strong>目前進度：</strong>你建立的「Apple Health Steps Test」只會查詢並加總最近 7 天步數，還沒有上傳到 App。請保留它當測試用；不要把 7 天總和當成每日資料，也先不要讓自動化執行它。</p>
+        <ol><li>先按下方按鈕建立同步金鑰，並立即複製保存。金鑰只顯示一次；不要貼到聊天或分享給別人。</li><li>在 iPhone「捷徑」建立真正的同步捷徑：需要逐日整理步數和活動熱量、整理運動項目，再用 POST JSON 傳送。只有「尋找健康樣本」和「計算總和」還不完整。</li><li>先手動成功同步，回到本頁確認出現「最近成功同步」，再設定每日自動化。</li></ol>
         <button id="createHealthSyncToken" type="button">建立捷徑同步金鑰</button>
         <p id="healthSyncStatus" role="status" aria-live="polite"></p>
         <div id="healthSyncTokenList" aria-live="polite"><p>正在讀取同步狀態…</p></div>
-        <details class="health-sync-guide"><summary>捷徑傳送格式</summary>
-          <p>在「捷徑」新增「尋找健康樣本」，分別選步數、活動能量和運動並限制日期；步數與活動能量用「計算統計資料」加總，運動則整理成清單。用「字典」組合下方 JSON，再加上「取得 URL 內容」設定為 POST。</p>
-          <p>URL：<code>${escapeHTML(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/apple-health-sync`)}</code>；標頭加入 <code>Authorization: Bearer 你的金鑰</code> 及 <code>Content-Type: application/json</code>。運動 id 可用「運動類型＋開始時間＋分鐘數」組成固定值。</p>
+        <details class="health-sync-guide"><summary>同步網址與資料格式</summary>
+          <p>這是捷徑最後的上傳動作設定。你目前的步數測試捷徑還沒有產生下方格式，因此先不要直接加入此動作。</p>
+          <p>URL：<code>${escapeHTML(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/apple-health-sync`)}</code></p>
+          <p>在「取得 URL 內容」設定：方法 <code>POST</code>、要求本文 <code>JSON</code>。標頭加入 <code>Authorization</code>：<code>Bearer 你的同步金鑰</code>，以及 <code>Content-Type</code>：<code>application/json</code>。</p>
+          <p>本文的 <code>days</code> 必須是逐日資料（日期格式 <code>YYYY-MM-DD</code>），不能把 7 天總步數填在單一天。<code>workouts</code> 可為空陣列；每筆運動的 id 要固定，重送時才能更新同一筆紀錄。</p>
           <pre>{"days":[{"date":"2026-11-20","steps":8200,"activeCalories":430}],"workouts":[{"id":"戶外步行-20261120T083000-35","name":"戶外步行","startedAt":"2026-11-20T08:30:00+08:00","durationMinutes":35}]}</pre>
-          <p>每天摘要用日期更新；同一筆運動的 id 必須固定，捷徑重送時才會更新。每日摘要只保存活動熱量與步數，運動項目不重複加總熱量。可在「自動化」建立每日時間觸發。</p>
+          <p>每日摘要保存步數和活動熱量；運動項目不重複加總熱量。完成真正的逐日資料整理後，才將上傳動作接到捷徑末端。</p>
           <p><a href="https://support.apple.com/guide/shortcuts/intro-to-find-and-filter-actions-apd3c845e881/ios" target="_blank" rel="noreferrer">Apple：尋找健康樣本</a> · <a href="https://support.apple.com/guide/shortcuts/apd58d46713f/ios" target="_blank" rel="noreferrer">Apple：用捷徑傳送 API 請求</a> · <a href="https://support.apple.com/guide/shortcuts/apdfbdbd7123/ios" target="_blank" rel="noreferrer">Apple：建立個人自動化</a></p>
         </details>
       </details>
@@ -992,11 +1002,11 @@ async function showApp() {
   if (healthSyncList && healthSyncStatus && createHealthSyncButton) {
     const loadHealthSyncTokens = async () => {
       const { data, error } = await supabase.from("health_sync_tokens")
-        .select("id,label,created_at,last_used_at,revoked_at")
+        .select("id,label,created_at,last_used_at,last_sync_at,last_sync_error,revoked_at")
         .eq("user_id", currentUser.id).order("created_at", { ascending: false });
       if (error) throw error;
       healthSyncList.innerHTML = data?.length ? data.map(token => `
-        <div class="health-sync-token"><p><strong>${token.revoked_at ? "已撤銷" : "可使用"}</strong> · 建立於 ${escapeHTML(new Date(token.created_at).toLocaleString("zh-TW"))}<br><span>${token.last_used_at ? `最近同步：${escapeHTML(new Date(token.last_used_at).toLocaleString("zh-TW"))}` : "尚未收到同步"}</span></p>
+        <div class="health-sync-token"><p><strong>${token.revoked_at ? "已撤銷" : "可使用"}</strong> · 建立於 ${escapeHTML(new Date(token.created_at).toLocaleString("zh-TW"))}<br><span>${token.last_used_at ? `最近連線：${escapeHTML(new Date(token.last_used_at).toLocaleString("zh-TW"))}` : "捷徑尚未連線"}<br>${token.last_sync_at ? `最近成功同步：${escapeHTML(new Date(token.last_sync_at).toLocaleString("zh-TW"))}` : "尚無成功同步紀錄"}</span>${token.last_sync_error ? `<br><span class="health-sync-error">同步失敗：${escapeHTML(token.last_sync_error)}</span>` : ""}</p>
         ${token.revoked_at ? "" : `<button type="button" class="revoke-health-token" data-token-id="${escapeHTML(token.id)}">撤銷金鑰</button>`}</div>`).join("") : "<p>尚未建立同步金鑰。</p>";
       healthSyncList.querySelectorAll(".revoke-health-token").forEach(button => {
         button.onclick = async () => {

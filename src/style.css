@@ -314,6 +314,7 @@ nav button.active {
 .account-data #exportData:disabled { opacity: .6; cursor: wait; }
 .account-data #exportStatus { min-height: 18px; margin-top: 7px; }
 .health-sync ol { margin: 0 0 12px; padding-left: 22px; color: #766762; font-size: 12px; line-height: 1.7; }
+.health-sync .health-sync-notice { padding: 10px 12px; border: 1px solid #ead8b8; border-radius: 10px; color: #735d36; background: #fff9ed; }
 .health-sync #createHealthSyncToken,
 .health-sync-token button,
 .health-sync-secret + button { width: 100%; min-height: 42px; margin: 6px 0; color: #654b60; background: #f3ebf1; }
@@ -322,6 +323,7 @@ nav button.active {
 .health-sync-token { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-top: 1px solid #eee5e1; padding: 8px 2px; }
 .health-sync-token p { flex: 1; margin: 0; }
 .health-sync-token span { color: #8e807b; }
+.health-sync-token .health-sync-error { color: #a34545; }
 .health-sync-token button { width: auto; min-height: 36px; padding: 6px 10px; color: #805c58; background: #f7efed; }
 .health-sync-guide { margin-top: 10px; border-top: 1px solid #eee5e1; }
 .health-sync-guide summary { padding: 12px 2px; color: #766762; font-size: 12px; }
