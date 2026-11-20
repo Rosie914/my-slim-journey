@@ -1078,8 +1078,7 @@ async function showApp() {
         const value = f.get(name);
         return value === "" || value === null ? null : Number(value);
       };
-      const { error } = await supabase.from("profiles").upsert({
-        id: currentUser.id,
+      const profilePayload = {
         display_name: f.get("display_name"),
         birth_date: f.get("birth_date") || null,
         sex: f.get("sex"),
@@ -1096,9 +1095,16 @@ async function showApp() {
         carbs_target_g: optionalNumber("carbs_target_g"),
         fat_target_g: optionalNumber("fat_target_g"),
         updated_at: new Date().toISOString()
-      }, { onConflict: "id" });
+      };
+      const profileWrite = profile
+        ? supabase.from("profiles").update(profilePayload)
+            .eq("id", currentUser.id).select("id").maybeSingle()
+        : supabase.from("profiles").insert({ ...profilePayload, id: currentUser.id })
+            .select("id").single();
+      const { data: savedProfile, error } = await profileWrite;
 
       if (error) return showMessage("儲存失敗：" + error.message);
+      if (!savedProfile) return showMessage("找不到可更新的個人資料，請重新整理後再儲存。");
       const {data: verified, error: verifyError} = await supabase.from("profiles")
         .select("birth_date,sex,height_cm,start_weight_kg").eq("id",currentUser.id).single();
       if (verifyError || verified?.birth_date !== f.get("birth_date") || verified?.sex !== f.get("sex")) {
