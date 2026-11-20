@@ -536,17 +536,17 @@ async function loadHomeActivityCalories(userId, date) {
 
 function renderHomeEnergyPlan(goal, recordedActivity) {
   const actual = recordedActivity === undefined ? "暫時無法讀取"
-    : recordedActivity?.calories == null ? "尚未記錄" : homeNumber.format(Math.round(recordedActivity.calories)) + " kcal";
+    : recordedActivity?.calories == null ? (recordedActivity?.steps != null ? "尚未同步" : "尚未記錄") : homeNumber.format(Math.round(recordedActivity.calories)) + " kcal";
   const steps = recordedActivity === undefined ? "暫時無法讀取"
     : recordedActivity?.steps == null ? "尚未記錄" : homeNumber.format(Math.round(recordedActivity.steps)) + " 步";
   return `<section class="card">
     <div class="home-row"><h2>今日運動</h2><button type="button" data-tab="activity" class="home-link">記錄運動 ›</button></div>
     <div class="home-exercise-grid">
       <div><span>計畫額外運動</span><b>${goal.ready ? homeNumber.format(goal.plannedExtraActivity) + " kcal" : "—"}</b></div>
-      <div><span>已記錄消耗</span><b>${actual}</b></div>
+      <div><span>Apple 健康活動熱量</span><b>${actual}</b></div>
       <div><span>今日步數</span><b>${steps}</b></div>
     </div>
-    <p class="home-note">日常活動已計入每日總消耗；這裡只顯示額外運動計畫與今天的運動紀錄。</p>
+    <p class="home-note">活動熱量包含日常活動與運動，不等同額外運動計畫完成量。若步數已同步但熱量顯示「尚未同步」，請在捷徑每日資料加入 activeCalories。</p>
   </section>`;
 }
 
@@ -760,7 +760,7 @@ function renderAppShell(content) {
       <details class="account-data"><summary>資料備份</summary><p>下載你的個人設定、目標階段、飲食、體重、運動與常吃食物紀錄。照片檔案不包含在備份中。</p><button id="exportData" type="button">下載我的資料</button><p id="exportStatus" role="status" aria-live="polite"></p></details>
       <details class="account-data health-sync" id="healthSyncPanel"><summary>Apple 健康自動同步</summary>
         <p>網站不能直接讀取 iPhone「健康」資料。完成捷徑設定後，可同步每日步數、活動熱量與運動項目；資料會寫入你的運動紀錄。</p>
-        <p class="health-sync-notice"><strong>目前進度：</strong>你已在「Apple Health Sync」讀到步數。沿用這個捷徑，不必刪除、改名或建立副本；目前仍要把步數整理成逐日資料並上傳到 App，單純顯示或加總步數不會完成同步。</p>
+        <p class="health-sync-notice"><strong>目前進度：</strong>每日步數已同步。Apple 健康活動熱量與捷徑運動項目尚未完整同步；沿用「Apple Health Sync」即可，不必刪除、改名或建立副本。</p>
         <ol><li>先按下方按鈕建立同步金鑰並複製保存。金鑰只顯示一次；不要貼到聊天或分享給別人。</li><li>依照下方步驟修改現有的 <code>Apple Health Sync</code>：保留步數查詢，移除 7 天加總，改為逐日清單並加入上傳。</li><li>手動執行後，只有看到 <code>ok: true</code> 且本頁出現「最近成功同步」，才算完成；之後再設定每日自動化。</li></ol>
         <button id="createHealthSyncToken" type="button">建立捷徑同步金鑰</button>
         <p id="healthSyncStatus" role="status" aria-live="polite"></p>
@@ -777,9 +777,9 @@ function renderAppShell(content) {
           </ol>
           <p>捷徑中的 <code>Group by Day</code> 需讓每個 Repeat Item 對應一天。若 <code>Get Details of Health Sample</code> 沒有 <code>Start Date</code> 或 <code>Value</code>，先不要上傳，因為輸出格式未符合每日摘要。</p>
           <p>URL：<code>${escapeHTML(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/apple-health-sync`)}</code></p>
-          <p>同步只含步數時，本文應是逐日資料，<code>activeCalories</code> 不必填；<code>workouts</code> 可為空陣列。不可將 7 天總步數填在單一天。</p>
-          <pre>{"days":[{"date":"2026-11-20","steps":8200}],"workouts":[]}</pre>
-          <p>確認本頁顯示最近成功同步後，在現有 Automation 的 <code>Run Shortcut</code> 動作中選 <code>Apple Health Sync</code>，設定觸發時間為每日。活動熱量和運動項目可在步數上傳穩定後加入同一個捷徑。</p>
+          <p>每個日期一筆資料；<code>steps</code> 是當日總步數，<code>activeCalories</code> 是 Apple 健康「活動能量／Move」的當日總 kcal。要讓首頁顯示活動熱量，該欄位必須由捷徑送出；未同步時會標示「尚未同步」。<code>workouts</code> 可暫時為空陣列，但這代表捷徑運動項目尚未同步。</p>
+          <pre>{"days":[{"date":"2026-11-20","steps":3444,"activeCalories":163}],"workouts":[]}</pre>
+          <p>健康活動熱量包含日常活動與運動，和「計畫額外運動」是不同指標，不要把它當成額外運動完成量。確認本頁顯示最近成功同步後，再於現有 Automation 設定每日執行。</p>
           <p><a href="https://support.apple.com/guide/shortcuts/intro-to-find-and-filter-actions-apd3c845e881/ios" target="_blank" rel="noreferrer">Apple：尋找健康樣本</a> · <a href="https://support.apple.com/guide/shortcuts/apd58d46713f/ios" target="_blank" rel="noreferrer">Apple：用捷徑傳送 API 請求</a> · <a href="https://support.apple.com/guide/shortcuts/apdfbdbd7123/ios" target="_blank" rel="noreferrer">Apple：建立個人自動化</a></p>
         </details>
       </details>

@@ -41,7 +41,7 @@
 .an-activity-week-card h2 { margin: 2px 0 3px; }
 .an-activity-week-card .an-section-head { margin-bottom: 12px; }
 .an-activity-week-card .an-section-head p { margin: 0; font-size: 13px; }
-.an-activity-week-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0 0 12px; }
+.an-activity-week-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0 0 12px; }
 .an-activity-week-days { display: grid; gap: 6px; }
 .an-activity-week-row { display: grid; grid-template-columns: 1fr 72px 1fr; align-items: center; gap: 8px; min-height: 38px; padding: 6px 10px; border-radius: 11px; color: #766762; background: #faf6f8; font-size: 13px; }
 .an-activity-week-row > span:nth-child(2) { text-align: center; }
@@ -59,6 +59,7 @@
   .an-form label, .an-form label:nth-child(n) { grid-column: 1; }
   .an-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .an-activity-month-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .an-activity-week-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .an-activity-week-row { grid-template-columns: 1fr 58px 1fr; gap: 5px; padding-inline: 8px; font-size: 12px; }
   .an-history-row { align-items: flex-start; }
 }
