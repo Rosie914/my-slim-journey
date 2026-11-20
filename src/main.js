@@ -32,6 +32,7 @@ let latestWeight = null;
 let pendingFoodPhoto = null;
 let pendingFoodMimeType = "image/jpeg";
 let pendingFoodAnalysis = null;
+let pendingHealthImport = null;
 
 const today = () => {
   const d = new Date();
@@ -118,6 +119,138 @@ async function buildUserBackup(userId) {
       favorite_foods: favorites
     }
   };
+}
+
+function appleAttribute(tag, name) {
+  const match = tag.match(new RegExp(`\\b${name}="([^"]*)"`));
+  return match?.[1] ?? "";
+}
+
+function parseAppleDate(value) {
+  const normalized = String(value || "").replace(
+    /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) ([+-]\d{2})(\d{2})$/,
+    "$1T$2$3:$4"
+  );
+  const parsed = new Date(normalized);
+  return Number.isFinite(parsed.getTime()) ? parsed : null;
+}
+
+function appleWorkoutName(value) {
+  const names = {
+    Running: "跑步", Walking: "步行", Hiking: "健行", Cycling: "騎自行車",
+    TraditionalStrengthTraining: "重量訓練", FunctionalStrengthTraining: "肌力訓練",
+    Yoga: "瑜伽", Swimming: "游泳", Dance: "舞蹈", Elliptical: "橢圓機",
+    Rowing: "划船機", Pilates: "皮拉提斯", Tennis: "網球",
+    StairClimbing: "爬樓梯", CoreTraining: "核心訓練", MindAndBody: "身心運動"
+  };
+  const key = String(value || "").replace(/^HKWorkoutActivityType/, "");
+  return names[key] || (key ? `Apple 健康運動（${key}）` : "Apple 健康運動");
+}
+
+async function parseAppleHealthXml(file, fromDate, toDate, onProgress = () => {}) {
+  if (typeof file.stream !== "function") throw new Error("目前瀏覽器無法串流讀取 XML，請改用最新版 Safari。");
+  const weights = new Map();
+  const workouts = new Map();
+  const reader = file.stream().getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let loaded = 0;
+  let chunks = 0;
+
+  const keepRecord = startDate => {
+    const localDay = String(startDate || "").slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(localDay) && localDay >= fromDate && localDay <= toDate;
+  };
+
+  const handleTag = tag => {
+    if (tag.startsWith("<Record")) {
+      if (appleAttribute(tag, "type") !== "HKQuantityTypeIdentifierBodyMass") return;
+      const startDate = appleAttribute(tag, "startDate");
+      if (!keepRecord(startDate)) return;
+      const date = parseAppleDate(startDate);
+      const rawWeight = Number(appleAttribute(tag, "value"));
+      const unit = appleAttribute(tag, "unit").toLowerCase();
+      if (!date || !Number.isFinite(rawWeight) || rawWeight <= 0) return;
+      const weightKg = unit === "lb" || unit === "lbs" ? rawWeight * 0.45359237
+        : unit === "g" ? rawWeight / 1000 : rawWeight;
+      if (weightKg < 25 || weightKg > 300) return;
+      const record = { weight_kg: Math.round(weightKg * 100) / 100, logged_at: date.toISOString() };
+      weights.set(`${record.logged_at}|${record.weight_kg.toFixed(2)}`, record);
+      return;
+    }
+
+    if (!tag.startsWith("<Workout")) return;
+    const startDate = appleAttribute(tag, "startDate");
+    if (!keepRecord(startDate)) return;
+    const date = parseAppleDate(startDate);
+    const rawDuration = Number(appleAttribute(tag, "duration"));
+    if (!date || !Number.isFinite(rawDuration) || rawDuration <= 0) return;
+    const durationUnit = appleAttribute(tag, "durationUnit").toLowerCase();
+    const durationMinutes = durationUnit.startsWith("sec") || durationUnit === "s" ? rawDuration / 60
+      : durationUnit.startsWith("hour") || durationUnit === "h" ? rawDuration * 60
+      : rawDuration;
+    if (durationMinutes <= 0 || durationMinutes > 1440) return;
+    const rawCalories = Number(appleAttribute(tag, "totalEnergyBurned"));
+    const energyUnit = appleAttribute(tag, "totalEnergyBurnedUnit").toLowerCase();
+    const calories = Number.isFinite(rawCalories) && rawCalories >= 0
+      ? Math.round(energyUnit === "kj" ? rawCalories / 4.184 : rawCalories) : null;
+    const record = {
+      activity_type: appleWorkoutName(appleAttribute(tag, "workoutActivityType")),
+      duration_minutes: Math.round(durationMinutes),
+      calories_burned: calories,
+      steps: null,
+      logged_at: date.toISOString()
+    };
+    const key = `${record.logged_at}|${record.activity_type}|${record.duration_minutes}|${record.calories_burned ?? ""}`;
+    workouts.set(key, record);
+  };
+
+  const processBuffer = () => {
+    const pattern = /<(?:Record|Workout)\b[^>]*>/g;
+    let match;
+    let consumed = 0;
+    while ((match = pattern.exec(buffer))) {
+      handleTag(match[0]);
+      consumed = pattern.lastIndex;
+    }
+    const remainder = buffer.slice(consumed);
+    const lastTagStart = remainder.lastIndexOf("<");
+    buffer = lastTagStart >= 0 ? remainder.slice(lastTagStart) : "";
+  };
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      loaded += value.byteLength;
+      chunks += 1;
+      buffer += decoder.decode(value, { stream: true });
+      processBuffer();
+      if (chunks % 24 === 0) {
+        onProgress(file.size ? Math.min(99, Math.floor(loaded / file.size * 100)) : 0);
+        await new Promise(resolve => window.setTimeout(resolve, 0));
+      }
+    }
+    buffer += decoder.decode();
+    processBuffer();
+  } finally {
+    reader.releaseLock();
+  }
+  onProgress(100);
+  return { weights: [...weights.values()], workouts: [...workouts.values()] };
+}
+
+async function loadAppleImportedRows(table, columns) {
+  const rows = [];
+  const pageSize = 500;
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabase.from(table).select(columns)
+      .eq("user_id", currentUser.id).ilike("notes", "Apple Health 匯入%")
+      .order("id").range(offset, offset + pageSize - 1);
+    if (error) throw error;
+    rows.push(...(data || []));
+    if ((data || []).length < pageSize) return rows;
+  }
 }
 
 async function loadLatestWeight() {
@@ -611,6 +744,18 @@ function renderAppShell(content) {
         <form id="passwordForm"><label>設定新密碼<input name="password" type="password" autocomplete="new-password" minlength="6" placeholder="至少 6 個字元" required></label><button type="submit">更新密碼</button></form>
       </details>
       <details class="account-data"><summary>資料備份</summary><p>下載你的個人設定、目標階段、飲食、體重、運動與常吃食物紀錄。照片檔案不包含在備份中。</p><button id="exportData" type="button">下載我的資料</button><p id="exportStatus" role="status" aria-live="polite"></p></details>
+      <details class="account-data health-import"><summary>Apple 健康資料匯入</summary>
+        <p>在 iPhone「健康」App 選擇「匯出所有健康資料」，解壓縮後選取 export.xml。只匯入所選日期內的體重與運動紀錄；XML 會在此裝置解析，其他健康資料不會匯入。</p>
+        <label>選擇 export.xml<input id="healthXmlFile" type="file" accept=".xml,text/xml,application/xml"></label>
+        <div class="health-import-dates">
+          <label>開始日期<input id="healthImportFrom" type="date" value="${shiftHomeDate(homeDate.format(new Date()), -89)}"></label>
+          <label>結束日期<input id="healthImportTo" type="date" value="${homeDate.format(new Date())}"></label>
+        </div>
+        <button id="previewHealthImport" type="button">預覽匯入資料</button>
+        <p id="healthImportStatus" role="status" aria-live="polite"></p>
+        <p id="healthImportPreview" class="health-import-preview"></p>
+        <button id="applyHealthImport" type="button" disabled>匯入預覽資料</button>
+      </details>
       <button id="logout" type="button" class="account-logout">登出</button></section>` : ""}
     ${content}
     <nav class="app-tabs" aria-label="主要導覽">
@@ -782,6 +927,7 @@ async function showApp() {
     settingsReturnTab = "home";
     currentTab = "home";
     localStorage.setItem("msj-current-tab", "home");
+    pendingHealthImport = null;
     currentUser = null;
     showLogin();
   };
@@ -825,6 +971,101 @@ async function showApp() {
       exportButton.disabled = false;
     }
   };
+
+  const healthFileInput = document.querySelector("#healthXmlFile");
+  const healthPreviewButton = document.querySelector("#previewHealthImport");
+  const healthApplyButton = document.querySelector("#applyHealthImport");
+  const healthStatus = document.querySelector("#healthImportStatus");
+  const healthPreview = document.querySelector("#healthImportPreview");
+  const healthDateInputs = [document.querySelector("#healthImportFrom"), document.querySelector("#healthImportTo")].filter(Boolean);
+
+  if (healthFileInput && healthPreviewButton && healthApplyButton && healthStatus && healthPreview) {
+    const resetHealthPreview = () => {
+      pendingHealthImport = null;
+      healthApplyButton.disabled = true;
+      healthPreview.textContent = "";
+      healthStatus.textContent = "";
+    };
+    healthFileInput.onchange = resetHealthPreview;
+    healthDateInputs.forEach(input => { input.onchange = resetHealthPreview; });
+
+    healthPreviewButton.onclick = async () => {
+      const file = healthFileInput.files?.[0];
+      const fromDate = document.querySelector("#healthImportFrom").value;
+      const toDate = document.querySelector("#healthImportTo").value;
+      if (!file) return healthStatus.textContent = "請先選擇解壓縮後的 export.xml。";
+      if (!file.name.toLowerCase().endsWith(".xml")) return healthStatus.textContent = "請選擇 Apple 健康匯出的 export.xml 檔案。";
+      if (fromDate && toDate && fromDate > toDate) return healthStatus.textContent = "開始日期需早於或等於結束日期。";
+      if (!fromDate || !toDate) return healthStatus.textContent = "請先選擇匯入日期範圍。";
+
+      healthPreviewButton.disabled = true;
+      healthApplyButton.disabled = true;
+      pendingHealthImport = null;
+      healthPreview.textContent = "";
+      healthStatus.textContent = "正在本機解析 XML…";
+      try {
+        const parsed = await parseAppleHealthXml(file, fromDate, toDate, percent => {
+          healthStatus.textContent = `正在本機解析 XML… ${percent}%`;
+        });
+        pendingHealthImport = { ...parsed, fromDate, toDate };
+        const count = parsed.weights.length + parsed.workouts.length;
+        healthPreview.textContent = count
+          ? `預覽範圍 ${fromDate} 至 ${toDate}：${parsed.weights.length} 筆體重、${parsed.workouts.length} 筆運動。按下匯入後會略過已匯入過的相同紀錄。`
+          : `預覽範圍 ${fromDate} 至 ${toDate} 沒有找到體重或運動紀錄。`;
+        healthStatus.textContent = "XML 解析完成。";
+        healthApplyButton.disabled = count === 0;
+      } catch (error) {
+        healthStatus.textContent = `解析失敗：${error.message || "請確認檔案是 Apple 健康匯出的 XML。"}`;
+      } finally {
+        healthPreviewButton.disabled = false;
+      }
+    };
+
+    healthApplyButton.onclick = async () => {
+      if (!pendingHealthImport) return;
+      healthApplyButton.disabled = true;
+      healthPreviewButton.disabled = true;
+      healthStatus.textContent = "正在檢查重複紀錄…";
+      let insertedWeights = 0;
+      let insertedWorkouts = 0;
+      try {
+        const [existingWeights, existingWorkouts] = await Promise.all([
+          loadAppleImportedRows("weight_logs", "weight_kg,logged_at,notes"),
+          loadAppleImportedRows("activity_logs", "activity_type,duration_minutes,calories_burned,logged_at,notes")
+        ]);
+        const weightKeys = new Set(existingWeights.map(row => `${new Date(row.logged_at).toISOString()}|${Number(row.weight_kg).toFixed(2)}`));
+        const workoutKeys = new Set(existingWorkouts.map(row =>
+          `${new Date(row.logged_at).toISOString()}|${row.activity_type}|${Number(row.duration_minutes)}|${row.calories_burned == null ? "" : Number(row.calories_burned)}`
+        ));
+        const weights = pendingHealthImport.weights
+          .filter(row => !weightKeys.has(`${row.logged_at}|${Number(row.weight_kg).toFixed(2)}`))
+          .map(row => ({ ...row, user_id: currentUser.id, notes: "Apple Health 匯入｜體重" }));
+        const workouts = pendingHealthImport.workouts
+          .filter(row => !workoutKeys.has(`${row.logged_at}|${row.activity_type}|${Number(row.duration_minutes)}|${row.calories_burned == null ? "" : Number(row.calories_burned)}`))
+          .map(row => ({ ...row, user_id: currentUser.id, notes: "Apple Health 匯入｜運動" }));
+
+        const insertBatches = async (table, rows, setCount) => {
+          for (let offset = 0; offset < rows.length; offset += 200) {
+            const batch = rows.slice(offset, offset + 200);
+            const { error } = await supabase.from(table).insert(batch);
+            if (error) throw error;
+            setCount(batch.length);
+          }
+        };
+        await insertBatches("weight_logs", weights, count => { insertedWeights += count; });
+        await insertBatches("activity_logs", workouts, count => { insertedWorkouts += count; });
+        const skipped = pendingHealthImport.weights.length + pendingHealthImport.workouts.length - weights.length - workouts.length;
+        healthStatus.textContent = `匯入完成：體重 ${insertedWeights} 筆、運動 ${insertedWorkouts} 筆；略過重複 ${skipped} 筆。`;
+        healthPreview.textContent = "匯入的運動紀錄會顯示在運動頁，體重紀錄會更新趨勢圖。";
+        pendingHealthImport = null;
+      } catch (error) {
+        healthStatus.textContent = `匯入中斷：已新增體重 ${insertedWeights} 筆、運動 ${insertedWorkouts} 筆。${error.message || "請稍後重試；已成功匯入的紀錄會在下次略過。"}`;
+      } finally {
+        healthApplyButton.disabled = !pendingHealthImport;
+        healthPreviewButton.disabled = false;
+      }
+    };
+  }
 
   const profileForm = document.querySelector("#profileForm");
 

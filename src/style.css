@@ -313,6 +313,13 @@ nav button.active {
 .account-data #exportData { width: 100%; min-height: 43px; color: #654b60; background: #f3ebf1; }
 .account-data #exportData:disabled { opacity: .6; cursor: wait; }
 .account-data #exportStatus { min-height: 18px; margin-top: 7px; }
+.health-import-dates { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.account-data.health-import input[type="file"] { padding: 10px; font-size: 12px; }
+.account-data.health-import #previewHealthImport,
+.account-data.health-import #applyHealthImport { width: 100%; min-height: 42px; margin-top: 8px; color: #654b60; background: #f3ebf1; }
+.account-data.health-import button:disabled { opacity: .55; cursor: not-allowed; }
+.account-data.health-import #healthImportStatus,
+.account-data.health-import #healthImportPreview { min-height: 18px; margin-top: 8px; }
 .settings-panel { padding: 0; overflow: hidden; }
 .settings-panel > summary {
   display: grid;

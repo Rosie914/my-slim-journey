@@ -7,6 +7,16 @@
 .coach-feedback ul { margin: 0; padding-left: 20px; }
 .coach-feedback li { margin: 7px 0; color: #594f5a; line-height: 1.55; }
 .coach-feedback .muted { margin: 12px 0 0; font-size: 11px; }
+.coach-ai { margin-top: 18px; padding: 16px; border: 1px solid #e8dce7; border-radius: 16px; background: #fffafd; }
+.coach-ai h3 { margin: 0 0 8px; color: #5f4d66; font-size: 16px; }
+.coach-ai > .muted { font-size: 12px; line-height: 1.6; }
+.coach-ai button { margin-top: 8px; }
+.coach-ai button:disabled { opacity: .6; cursor: progress; }
+.coach-ai-result { margin-top: 14px; padding: 14px; border-radius: 12px; background: #f7f1f8; color: #594f5a; line-height: 1.6; }
+.coach-ai-result h4 { margin: 0 0 8px; color: #5f4d66; }
+.coach-ai-result ul { margin: 6px 0 12px; padding-left: 20px; }
+.coach-ai-result li { margin: 5px 0; }
+.coach-ai-result .muted { margin: 12px 0 0; font-size: 11px; }
 .nutrition-basis { margin: 10px 0; }
 .nutrition-basis-intro, .nutrition-basis-note { color: #81736e; font-size: 13px; }
 .nutrition-basis-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
