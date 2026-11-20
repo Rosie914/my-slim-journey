@@ -313,6 +313,20 @@ nav button.active {
 .account-data #exportData { width: 100%; min-height: 43px; color: #654b60; background: #f3ebf1; }
 .account-data #exportData:disabled { opacity: .6; cursor: wait; }
 .account-data #exportStatus { min-height: 18px; margin-top: 7px; }
+.health-sync ol { margin: 0 0 12px; padding-left: 22px; color: #766762; font-size: 12px; line-height: 1.7; }
+.health-sync #createHealthSyncToken,
+.health-sync-token button,
+.health-sync-secret + button { width: 100%; min-height: 42px; margin: 6px 0; color: #654b60; background: #f3ebf1; }
+.health-sync #healthSyncStatus { min-height: 18px; overflow-wrap: anywhere; }
+.health-sync-secret { display: inline-block; margin: 6px 0; padding: 8px; border-radius: 8px; background: #f5f0ed; font-size: 11px; overflow-wrap: anywhere; }
+.health-sync-token { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-top: 1px solid #eee5e1; padding: 8px 2px; }
+.health-sync-token p { flex: 1; margin: 0; }
+.health-sync-token span { color: #8e807b; }
+.health-sync-token button { width: auto; min-height: 36px; padding: 6px 10px; color: #805c58; background: #f7efed; }
+.health-sync-guide { margin-top: 10px; border-top: 1px solid #eee5e1; }
+.health-sync-guide summary { padding: 12px 2px; color: #766762; font-size: 12px; }
+.health-sync-guide code, .health-sync-guide pre { overflow-wrap: anywhere; white-space: pre-wrap; }
+.health-sync-guide pre { padding: 10px; border-radius: 9px; color: #5b4d50; background: #f7f3f1; font-size: 11px; }
 .health-import-dates { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .account-data.health-import input[type="file"] { padding: 10px; font-size: 12px; }
 .account-data.health-import #previewHealthImport,

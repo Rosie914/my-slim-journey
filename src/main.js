@@ -744,6 +744,20 @@ function renderAppShell(content) {
         <form id="passwordForm"><label>設定新密碼<input name="password" type="password" autocomplete="new-password" minlength="6" placeholder="至少 6 個字元" required></label><button type="submit">更新密碼</button></form>
       </details>
       <details class="account-data"><summary>資料備份</summary><p>下載你的個人設定、目標階段、飲食、體重、運動與常吃食物紀錄。照片檔案不包含在備份中。</p><button id="exportData" type="button">下載我的資料</button><p id="exportStatus" role="status" aria-live="polite"></p></details>
+      <details class="account-data health-sync" id="healthSyncPanel"><summary>Apple 健康自動同步</summary>
+        <p>網站不能直接讀取 iPhone「健康」資料。設定 iPhone 捷徑後，可定期同步每日步數、活動熱量與運動項目；匯入資料會寫入你的運動紀錄。</p>
+        <ol><li>建立同步連線並複製一次性金鑰。</li><li>在 iPhone「捷徑」建立流程：讀取健康 App 的步數、活動能量與運動資料，再以 POST JSON 傳送。</li><li>用「每日」個人自動化執行該捷徑。捷徑設定格式見下方。</li></ol>
+        <button id="createHealthSyncToken" type="button">建立捷徑同步金鑰</button>
+        <p id="healthSyncStatus" role="status" aria-live="polite"></p>
+        <div id="healthSyncTokenList" aria-live="polite"><p>正在讀取同步狀態…</p></div>
+        <details class="health-sync-guide"><summary>捷徑傳送格式</summary>
+          <p>在「捷徑」新增「尋找健康樣本」，分別選步數、活動能量和運動並限制日期；步數與活動能量用「計算統計資料」加總，運動則整理成清單。用「字典」組合下方 JSON，再加上「取得 URL 內容」設定為 POST。</p>
+          <p>URL：<code>${escapeHTML(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/apple-health-sync`)}</code>；標頭加入 <code>Authorization: Bearer 你的金鑰</code> 及 <code>Content-Type: application/json</code>。運動 id 可用「運動類型＋開始時間＋分鐘數」組成固定值。</p>
+          <pre>{"days":[{"date":"2026-11-20","steps":8200,"activeCalories":430}],"workouts":[{"id":"戶外步行-20261120T083000-35","name":"戶外步行","startedAt":"2026-11-20T08:30:00+08:00","durationMinutes":35}]}</pre>
+          <p>每天摘要用日期更新；同一筆運動的 id 必須固定，捷徑重送時才會更新。每日摘要只保存活動熱量與步數，運動項目不重複加總熱量。可在「自動化」建立每日時間觸發。</p>
+          <p><a href="https://support.apple.com/guide/shortcuts/intro-to-find-and-filter-actions-apd3c845e881/ios" target="_blank" rel="noreferrer">Apple：尋找健康樣本</a> · <a href="https://support.apple.com/guide/shortcuts/apd58d46713f/ios" target="_blank" rel="noreferrer">Apple：用捷徑傳送 API 請求</a> · <a href="https://support.apple.com/guide/shortcuts/apdfbdbd7123/ios" target="_blank" rel="noreferrer">Apple：建立個人自動化</a></p>
+        </details>
+      </details>
       <details class="account-data health-import"><summary>Apple 健康資料匯入</summary>
         <p>在 iPhone「健康」App 選擇「匯出所有健康資料」，解壓縮後選取 export.xml。只匯入所選日期內的體重與運動紀錄；XML 會在此裝置解析，其他健康資料不會匯入。</p>
         <label>選擇 export.xml<input id="healthXmlFile" type="file" accept=".xml,text/xml,application/xml"></label>
@@ -971,6 +985,61 @@ async function showApp() {
       exportButton.disabled = false;
     }
   };
+
+  const healthSyncList = document.querySelector("#healthSyncTokenList");
+  const healthSyncStatus = document.querySelector("#healthSyncStatus");
+  const createHealthSyncButton = document.querySelector("#createHealthSyncToken");
+  if (healthSyncList && healthSyncStatus && createHealthSyncButton) {
+    const loadHealthSyncTokens = async () => {
+      const { data, error } = await supabase.from("health_sync_tokens")
+        .select("id,label,created_at,last_used_at,revoked_at")
+        .eq("user_id", currentUser.id).order("created_at", { ascending: false });
+      if (error) throw error;
+      healthSyncList.innerHTML = data?.length ? data.map(token => `
+        <div class="health-sync-token"><p><strong>${token.revoked_at ? "已撤銷" : "可使用"}</strong> · 建立於 ${escapeHTML(new Date(token.created_at).toLocaleString("zh-TW"))}<br><span>${token.last_used_at ? `最近同步：${escapeHTML(new Date(token.last_used_at).toLocaleString("zh-TW"))}` : "尚未收到同步"}</span></p>
+        ${token.revoked_at ? "" : `<button type="button" class="revoke-health-token" data-token-id="${escapeHTML(token.id)}">撤銷金鑰</button>`}</div>`).join("") : "<p>尚未建立同步金鑰。</p>";
+      healthSyncList.querySelectorAll(".revoke-health-token").forEach(button => {
+        button.onclick = async () => {
+          button.disabled = true;
+          const { error: revokeError } = await supabase.from("health_sync_tokens")
+            .update({ revoked_at: new Date().toISOString() })
+            .eq("id", button.dataset.tokenId).eq("user_id", currentUser.id).is("revoked_at", null);
+          if (revokeError) {
+            button.disabled = false;
+            healthSyncStatus.textContent = `撤銷失敗：${revokeError.message}`;
+            return;
+          }
+          healthSyncStatus.textContent = "金鑰已撤銷，使用它的捷徑將無法再同步。";
+          await loadHealthSyncTokens();
+        };
+      });
+    };
+    loadHealthSyncTokens().catch(error => { healthSyncList.innerHTML = `<p>讀取同步狀態失敗：${escapeHTML(error.message)}</p>`; });
+    createHealthSyncButton.onclick = async () => {
+      createHealthSyncButton.disabled = true;
+      healthSyncStatus.textContent = "正在建立安全金鑰…";
+      try {
+        const bytes = crypto.getRandomValues(new Uint8Array(32));
+        const token = `msj_${Array.from(bytes, value => value.toString(16).padStart(2, "0")).join("")}`;
+        const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+        const tokenHash = Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, "0")).join("");
+        const { error } = await supabase.from("health_sync_tokens").insert({
+          user_id: currentUser.id, token_hash: tokenHash, label: "Apple 捷徑"
+        });
+        if (error) throw error;
+        healthSyncStatus.innerHTML = `金鑰只會顯示這一次，請立即複製到捷徑：<br><code class="health-sync-secret">${escapeHTML(token)}</code> <button id="copyHealthSyncToken" type="button">複製金鑰</button>`;
+        document.querySelector("#copyHealthSyncToken").onclick = async () => {
+          await navigator.clipboard.writeText(token);
+          healthSyncStatus.textContent = "已複製。請貼到捷徑的 Authorization 標頭：Bearer 金鑰。";
+        };
+        await loadHealthSyncTokens();
+      } catch (error) {
+        healthSyncStatus.textContent = `建立失敗：${error.message || "請稍後重試。"}`;
+      } finally {
+        createHealthSyncButton.disabled = false;
+      }
+    };
+  }
 
   const healthFileInput = document.querySelector("#healthXmlFile");
   const healthPreviewButton = document.querySelector("#previewHealthImport");
