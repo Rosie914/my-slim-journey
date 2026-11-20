@@ -8,7 +8,7 @@ const safe=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'
 async function fetchAll(q){const out=[];for(let p=0;p<12;p++){const {data,error}=await q.range(p*500,p*500+499);if(error)throw error;out.push(...(data||[]));if((data||[]).length<500)return out;}throw Error('紀錄量超過本頁讀取上限');}
 const actual=m=>m.filter(x=>x.source!=='planned');
 function totals(meals){const t={calories:0,protein:0,carbs:0,fat:0};for(const m of meals)for(const x of m.meal_items||[]){t.calories+=num(x.calories);t.protein+=num(x.protein_g);t.carbs+=num(x.carbs_g);t.fat+=num(x.fat_g);}return t;}
-async function mealsBetween(db,uid,start,days){const [a,b]=range(start,days);return actual(await fetchAll(db.from('meals').select('source,eaten_at,meal_items(calories,protein_g,carbs_g,fat_g)').eq('user_id',uid).gte('eaten_at',a).lt('eaten_at',b).order('id')));}
+async function mealsBetween(db,uid,start,days){const [a,b]=range(start,days);return actual(await fetchAll(db.from('meals').select('meal_type,source,eaten_at,meal_items(food_name,quantity,calories,protein_g,carbs_g,fat_g)').eq('user_id',uid).gte('eaten_at',a).lt('eaten_at',b).order('eaten_at',{ascending:false}).order('id',{ascending:false})));}
 function summarizeCoachWeights(logs, start, split, end) {
   const latestByDay = new Map();
   for (const log of logs) {
@@ -197,7 +197,7 @@ export async function renderCoachGuidance(db, uid, profile, weight) {
     <h3>近 7 天飲食與活動</h3>${recordsSummary}${feedback}
     <section class="coach-ai">
       <h3>AI 個人化策略</h3>
-      <p class="muted">按下產生後，會將年齡、目前體重、階段目標、近兩週體重平均、近一週飲食與活動摘要傳送至 Google Gemini。App 不會將 AI 回覆寫入資料庫；Google 的資料處理依其服務政策。</p>
+      <p class="muted">按下產生後，會將年齡、目前體重、階段目標、近兩週體重平均、近一週活動摘要，以及最近最多 10 餐的餐點名稱、份量與營養數值傳送至 Google Gemini；不會傳送照片或備註。App 不會儲存 AI 回覆；Google 的資料處理依其服務政策。</p>
       ${goal.ready
         ? '<button type="button" id="generateAiPlan">產生本週建議</button>'
         : '<p class="muted">請先補齊個人資料，再產生 AI 建議。</p>'}
@@ -248,7 +248,17 @@ export async function renderCoachGuidance(db, uid, profile, weight) {
             activityEntries: activities.length,
             activityMinutes: activities.reduce((sum, item) => sum + num(item.duration_minutes), 0),
             recordedActivityCalories: activities.length && activities.every(item => item.calories_burned != null && Number.isFinite(Number(item.calories_burned)))
-              ? Math.round(activities.reduce((sum, item) => sum + num(item.calories_burned), 0)) : null
+              ? Math.round(activities.reduce((sum, item) => sum + num(item.calories_burned), 0)) : null,
+            recentMeals: meals.slice(0, 10).map(meal => ({
+              date: tw(meal.eaten_at),
+              mealType: meal.meal_type,
+              items: (meal.meal_items || []).slice(0, 6).map(item => ({
+                name: String(item.food_name || "").slice(0, 48),
+                quantity: String(item.quantity || "").slice(0, 24),
+                calories: item.calories == null ? null : num(item.calories),
+                proteinG: item.protein_g == null ? null : num(item.protein_g)
+              }))
+            }))
           }
         };
         const { data, error } = await db.functions.invoke("personalized-weight-plan", { body: { context } });
