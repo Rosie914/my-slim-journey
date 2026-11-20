@@ -1,13 +1,13 @@
 const $ = id => document.getElementById(id);
 const esc = v => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const localDate = (date=new Date()) => {const d=new Date(date);d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,10)};
+const localDate = (date=new Date()) => new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(date));
 const n=v=>Number(v||0);
 const fmt=(v,digits=1)=>n(v).toFixed(digits);
-const weekStart=date=>{const d=new Date(`${date}T12:00:00`);d.setDate(d.getDate()-((d.getDay()+6)%7));return localDate(d)};
-const dateTime=date=>new Date(`${date}T12:00:00`).toISOString();
-const dateStart=date=>new Date(`${date}T00:00:00`).toISOString();
-const shiftDay=(date,offset)=>{const d=new Date(`${date}T12:00:00`);d.setDate(d.getDate()+offset);return localDate(d)};
-const shiftMonth=(month,offset)=>{const d=new Date(`${month}-01T12:00:00`);d.setMonth(d.getMonth()+offset);return localDate(d).slice(0,7)};
+const weekStart=date=>{const d=new Date(`${date}T00:00:00Z`);d.setUTCDate(d.getUTCDate()-((d.getUTCDay()+6)%7));return d.toISOString().slice(0,10)};
+const dateTime=date=>new Date(`${date}T12:00:00+08:00`).toISOString();
+const dateStart=date=>new Date(`${date}T00:00:00+08:00`).toISOString();
+const shiftDay=(date,offset)=>{const d=new Date(`${date}T00:00:00Z`);d.setUTCDate(d.getUTCDate()+offset);return d.toISOString().slice(0,10)};
+const shiftMonth=(month,offset)=>{const d=new Date(`${month}-01T00:00:00Z`);d.setUTCMonth(d.getUTCMonth()+offset);return d.toISOString().slice(0,7)};
 async function rows(db,table,uid,column,from,to){let q=db.from(table).select('*').eq('user_id',uid).order(column,{ascending:false}).limit(500);if(from)q=q.gte(column,from);if(to)q=q.lt(column,to);const {data,error}=await q;if(error)throw error;return data||[]}
 export function renderAnalytics(tab){
  if(tab==='weight')return `<section class="card an-activity-calendar-card"><div class="an-calendar-toolbar"><button type="button" id="anWeightPrevious" aria-label="上一個月">‹</button><button type="button" id="anWeightMonth" aria-expanded="true" aria-controls="anWeightCalendar"></button><button type="button" id="anWeightNext" aria-label="下一個月">›</button></div><div id="anWeightCalendar" class="an-calendar-grid" aria-label="選擇體重紀錄日期"></div><div class="an-calendar-footer"><span id="anWeightSelected" aria-live="polite"></span><button type="button" id="anWeightToday">回到今天</button></div><p class="muted an-calendar-legend">● 有體重紀錄</p></section><section class="card"><div class="an-section-head"><h2 id="anWeightDayTitle">當日體重</h2><details id="anWeightEditor" class="an-activity-editor"><summary>＋ 新增體重</summary><form id="anWeightForm" class="an-form an-weight-form"><label>體重（kg）<input name="weight_kg" type="number" min="25" max="250" step="0.1" required></label><label>日期<input name="logged_at" type="date" required readonly></label><label>備註（選填）<input name="notes" maxlength="300" placeholder="例如：起床、上完廁所後"></label><button type="submit">儲存體重</button><button type="button" id="anWeightCancel" class="an-secondary" hidden>取消修改</button><p id="anWeightStatus" class="muted" role="status"></p></form></details></div><div id="anWeightStats" class="an-stats an-weight-stats"></div><div id="anWeightHistory"></div></section><section class="card"><details id="anWeightTrend"><summary>查看體重折線趨勢</summary><div class="an-section-head"><h3>最近紀錄</h3><span id="anWeightCount" class="muted"></span></div><div id="anWeightChart" class="an-chart-wrap"><p class="muted">讀取中…</p></div></details><p class="muted">單日體重波動不代表脂肪增減，請搭配長期趨勢觀察。</p></section>`;
