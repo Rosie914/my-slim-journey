@@ -46,6 +46,64 @@ function coachStat(value, label) {
   return `<div><strong>${value}</strong><small>${label}</small></div>`;
 }
 
+function mondayOf(day) {
+  const weekday = new Date(`${day}T00:00:00Z`).getUTCDay();
+  return add(day, -((weekday + 6) % 7));
+}
+
+function makeReviewSnapshot(weightTrend, meals, activities) {
+  const items = meals.flatMap(meal => meal.meal_items || []);
+  const daysWithMeals = new Set(meals.map(meal => tw(meal.eaten_at))).size;
+  const caloriesComplete = items.length > 0 && items.every(item => item.calories != null && Number.isFinite(Number(item.calories)));
+  const proteinComplete = items.length > 0 && items.every(item => item.protein_g != null && Number.isFinite(Number(item.protein_g)));
+  const mealTotals = totals(meals);
+  const recordedCalories = activities.length && activities.every(item => item.calories_burned != null && Number.isFinite(Number(item.calories_burned)))
+    ? activities.reduce((sum, item) => sum + num(item.calories_burned), 0) : null;
+  const recentWeight = weightTrend?.recent;
+  return {
+    weightAverageKg: recentWeight?.days >= 3 && Number.isFinite(Number(recentWeight.average))
+      ? Number(recentWeight.average.toFixed(2)) : null,
+    weightDays: recentWeight?.days || 0,
+    daysWithMeals,
+    averageCaloriesOnLoggedDays: caloriesComplete && daysWithMeals ? Math.round(mealTotals.calories / daysWithMeals) : null,
+    averageProteinOnLoggedDaysG: proteinComplete && daysWithMeals ? Math.round(mealTotals.protein / daysWithMeals) : null,
+    activityEntries: activities.length,
+    activityMinutes: activities.reduce((sum, item) => sum + num(item.duration_minutes), 0),
+    recordedActivityCalories: recordedCalories === null ? null : Math.round(recordedCalories),
+  };
+}
+
+function renderPlanComparison(before, current) {
+  if (!before || !current) return '<p class="muted">目前資料不足以比較這份建議前後的紀錄。</p>';
+  const rows = [];
+  if (before.weightAverageKg != null && current.weightAverageKg != null) {
+    const change = current.weightAverageKg - before.weightAverageKg;
+    rows.push(`體重週平均：${before.weightAverageKg.toFixed(2)} → ${current.weightAverageKg.toFixed(2)} kg（${change > 0 ? "+" : ""}${change.toFixed(2)} kg）`);
+  }
+  if (before.daysWithMeals && current.daysWithMeals) {
+    const oldCalories = before.averageCaloriesOnLoggedDays == null ? "熱量資料不完整" : `${before.averageCaloriesOnLoggedDays} kcal/有記錄日`;
+    const newCalories = current.averageCaloriesOnLoggedDays == null ? "熱量資料不完整" : `${current.averageCaloriesOnLoggedDays} kcal/有記錄日`;
+    const oldProtein = before.averageProteinOnLoggedDaysG == null ? "蛋白質資料不完整" : `${before.averageProteinOnLoggedDaysG} g/有記錄日`;
+    const newProtein = current.averageProteinOnLoggedDaysG == null ? "蛋白質資料不完整" : `${current.averageProteinOnLoggedDaysG} g/有記錄日`;
+    rows.push(`飲食紀錄：${before.daysWithMeals} → ${current.daysWithMeals} 天；平均攝取 ${oldCalories} → ${newCalories}，蛋白質 ${oldProtein} → ${newProtein}`);
+  }
+  if (before.activityEntries || current.activityEntries) {
+    const oldCalories = before.recordedActivityCalories == null ? "消耗未完整" : `${before.recordedActivityCalories} kcal`;
+    const newCalories = current.recordedActivityCalories == null ? "消耗未完整" : `${current.recordedActivityCalories} kcal`;
+    rows.push(`活動紀錄：${before.activityEntries || 0} → ${current.activityEntries || 0} 筆、${before.activityMinutes || 0} → ${current.activityMinutes || 0} 分鐘；消耗 ${oldCalories} → ${newCalories}`);
+  }
+  return rows.length
+    ? `<div class="coach-plan-comparison"><h4>與生成當時相比</h4><ul>${rows.map(row => `<li>${safe(row)}</li>`).join("")}</ul><p class="muted">對照目前近 7 天紀錄；體重比較使用最近兩段週平均資料。</p></div>`
+    : '<p class="muted">目前紀錄不足以比較這份建議前後的變化。</p>';
+}
+
+function planGeneratedLabel(value) {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime())
+    ? new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(date)
+    : "時間未記錄";
+}
+
 function renderCoachTrend(weights, goal, start, split, end) {
   const { recent, previous } = weights;
   const minDays = 3;
@@ -170,14 +228,25 @@ export async function renderCoachGuidance(db, uid, profile, weight) {
   const end = tw();
   const split = add(end, -7);
   const start = add(end, -14);
+  const currentWeekStart = mondayOf(end);
   const [activityFrom, to] = range(split, 7);
-  const [weightResult, mealResult, activityResult] = await Promise.allSettled([
+  const [weightResult, mealResult, activityResult, plansResult] = await Promise.allSettled([
     loadNutritionTrend(db, uid, end),
     mealsBetween(db, uid, split, 7),
     fetchAll(db.from("activity_logs").select("duration_minutes,steps,calories_burned").eq("user_id", uid)
-      .gte("logged_at", activityFrom).lt("logged_at", to).order("id"))
+      .gte("logged_at", activityFrom).lt("logged_at", to).order("id")),
+    db.from("coach_weekly_plans").select("week_start,generated_at,plan,review_snapshot")
+      .eq("user_id", uid).order("week_start", { ascending: false }).limit(8)
   ]);
   if (!document.contains(anchor)) return;
+  const historyUnavailable = plansResult.status === "rejected" || Boolean(plansResult.value?.error);
+  const savedPlans = historyUnavailable ? [] : plansResult.value.data || [];
+  const currentPlan = savedPlans.find(item => item.week_start === currentWeekStart) || null;
+  const currentReviewSnapshot = makeReviewSnapshot(
+    weightResult.status === "fulfilled" ? weightResult.value : null,
+    mealResult.status === "fulfilled" ? mealResult.value : [],
+    activityResult.status === "fulfilled" ? activityResult.value : []
+  );
   const goal = calculateNutrition({ ...profile, _weightTrend: weightResult.value }, weight?.weight_kg, end);
   const unavailable = '<p class="muted">暫時無法讀取這項紀錄。</p>';
   const weightSummary = weightResult.status === "fulfilled"
@@ -192,16 +261,31 @@ export async function renderCoachGuidance(db, uid, profile, weight) {
   const plan = goal.ready
     ? renderNutritionBasis(goal) + goal.warnings.map(warning => `<p class="muted">${safe(warning)}</p>`).join("")
     : `<p class="muted">${safe(goal.reason || "請先補齊個人與體重資料。")}</p>`;
+  const priorPlans = savedPlans.filter(item => item.week_start !== currentWeekStart);
+  const savedPlanHistory = historyUnavailable
+    ? '<p class="muted" role="status">暫時無法讀取 AI 建議歷史。</p>'
+    : priorPlans.length
+      ? `<details class="coach-ai-history"><summary>歷次 AI 建議（${priorPlans.length} 週）</summary>${priorPlans.map(item => `
+          <details class="coach-ai-history-item">
+            <summary>${safe(String(item.week_start || "").replaceAll("-", "/"))} 週 · ${safe(planGeneratedLabel(item.generated_at))}</summary>
+            ${renderPlanComparison(item.review_snapshot, currentReviewSnapshot)}
+            ${renderAiPlan(item.plan || {})}
+          </details>`).join("")}</details>`
+      : '<p class="muted">尚無前週 AI 建議。</p>';
+  const currentPlanMarkup = currentPlan
+    ? `<p class="muted">本週已保存建議 · 最近更新 ${safe(planGeneratedLabel(currentPlan.generated_at))}</p>${renderAiPlan(currentPlan.plan || {})}`
+    : '<p class="muted">尚未產生本週建議。</p>';
   anchor.innerHTML = `<h3>目前營養估算</h3>${plan}
     <h3>近 14 天體重回顧</h3>${weightSummary}
     <h3>近 7 天飲食與活動</h3>${recordsSummary}${feedback}
     <section class="coach-ai">
       <h3>AI 個人化策略</h3>
-      <p class="muted">按下產生後，會將年齡、目前體重、階段目標、近兩週體重平均、近一週活動摘要，以及最近最多 10 餐的餐點名稱、份量與營養數值傳送至 Google Gemini；不會傳送照片或備註。App 不會儲存 AI 回覆；Google 的資料處理依其服務政策。</p>
+      <p class="muted">按下產生後，會將年齡、目前體重、階段目標、近兩週體重平均、近一週活動摘要，以及最近最多 10 餐的餐點名稱、份量與營養數值傳送至 Google Gemini；不會傳送照片或備註。AI 回覆及生成當下的週回顧摘要會保存在你的 Supabase 帳號，方便查看歷史與比較；餐點明細不會存入 AI 建議歷史。</p>
       ${goal.ready
-        ? '<button type="button" id="generateAiPlan">產生本週建議</button>'
+        ? `<button type="button" id="generateAiPlan">${currentPlan ? "重新產生本週建議" : "產生本週建議"}</button>`
         : '<p class="muted">請先補齊個人資料，再產生 AI 建議。</p>'}
-      <div id="aiPlanOutput" class="coach-ai-output"></div>
+      <div id="aiPlanOutput" class="coach-ai-output">${currentPlanMarkup}</div>
+      <div id="aiPlanHistory">${savedPlanHistory}</div>
     </section>`;
 
   const aiButton = anchor.querySelector("#generateAiPlan");
@@ -264,7 +348,18 @@ export async function renderCoachGuidance(db, uid, profile, weight) {
         const { data, error } = await db.functions.invoke("personalized-weight-plan", { body: { context } });
         if (error) throw error;
         if (!data?.success || !data?.plan) throw new Error(data?.error || "AI 暫時無法產生建議，請稍後再試。");
-        aiOutput.innerHTML = renderAiPlan(data.plan);
+        const generatedAt = new Date().toISOString();
+        const { error: saveError } = await db.from("coach_weekly_plans").upsert({
+          user_id: uid,
+          week_start: currentWeekStart,
+          generated_at: generatedAt,
+          plan: data.plan,
+          review_snapshot: currentReviewSnapshot
+        }, { onConflict: "user_id,week_start" });
+        aiButton.textContent = "重新產生本週建議";
+        aiOutput.innerHTML = `${saveError
+          ? `<p class="muted" role="status">建議已產生，但儲存失敗：${safe(saveError.message)}</p>`
+          : `<p class="muted">本週建議已保存 · ${safe(planGeneratedLabel(generatedAt))}</p>`}${renderAiPlan(data.plan)}`;
       } catch (error) {
         aiOutput.innerHTML = `<p class="muted">${safe(error.message || "AI 暫時無法產生建議，請稍後再試。")}</p>`;
       } finally {

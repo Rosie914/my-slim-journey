@@ -17,6 +17,14 @@
 .coach-ai-result ul { margin: 6px 0 12px; padding-left: 20px; }
 .coach-ai-result li { margin: 5px 0; }
 .coach-ai-result .muted { margin: 12px 0 0; font-size: 11px; }
+.coach-ai-history { margin-top: 14px; padding-top: 10px; border-top: 1px solid #eadfe8; }
+.coach-ai-history > summary, .coach-ai-history-item > summary { color: #5f4d66; font-size: 13px; font-weight: 650; cursor: pointer; }
+.coach-ai-history-item { margin-top: 10px; padding: 11px; border-radius: 12px; background: #fff; }
+.coach-plan-comparison { margin-top: 12px; padding: 12px; border-radius: 12px; background: #faf6f4; color: #594843; }
+.coach-plan-comparison h4 { margin: 0 0 8px; color: #5f4d66; font-size: 13px; }
+.coach-plan-comparison ul { margin: 0; padding-left: 19px; }
+.coach-plan-comparison li { margin: 5px 0; font-size: 12px; line-height: 1.55; }
+.coach-plan-comparison .muted { margin: 8px 0 0; font-size: 11px; }
 .nutrition-basis { margin: 10px 0; }
 .nutrition-basis-intro, .nutrition-basis-note { color: #81736e; font-size: 13px; }
 .nutrition-basis-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
