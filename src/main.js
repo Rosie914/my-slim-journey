@@ -57,6 +57,24 @@ function showMessage(message) {
   alert(message);
 }
 
+function renderSettingsNutritionPreview(goal) {
+  return `<section class="card settings-goal-preview" id="settingsGoalPreview">
+    <div class="settings-goal-heading"><div><p class="eyebrow">TODAY'S PLAN</p><h2>目前營養目標</h2></div>
+      ${goal.ready ? `<span class="nutrition-goal-tag">${goal.manual ? "手動熱量" : "階段自動"}</span>` : ""}</div>
+    ${goal.ready ? `<div class="settings-goal-stats">
+      <div><span>每日熱量</span><b>${goal.calorieTarget.toLocaleString("zh-TW")} kcal</b></div>
+      <div><span>蛋白質</span><b>${goal.protein} g</b></div>
+      <div><span>碳水</span><b>${goal.carbs} g</b></div>
+      <div><span>脂肪</span><b>${goal.fat} g</b></div>
+    </div>
+    <p class="muted">${goal.stageName ? `套用階段「${escapeHTML(goal.stageName)}」：${goal.targetWeight} kg · ${escapeHTML(goal.targetDate)}，剩 ${goal.daysRemaining} 天。` : "沒有進行中的階段，減脂模式會以維持熱量作為估算。"}</p>
+    ${goal.manual ? '<p class="muted">目前自訂熱量會覆蓋階段自動熱量；清空「自訂熱量」並儲存即可恢復連動。</p>' : `<p class="muted">自動熱量參考 ${goal.automaticTarget} kcal；依個人資料、目前體重與近期體重趨勢估算。</p>`}
+    ${goal.warnings.map(warning => `<p class="muted" role="status">${escapeHTML(warning)}</p>`).join("")}
+    <details class="settings-goal-details"><summary>查看計算依據</summary>${renderNutritionBasis(goal)}</details>`
+    : `<p class="muted">${escapeHTML(goal.reason || `補齊${goal.missing.map(escapeHTML).join("、")}後即可預覽目標。`)}</p>`}
+  </section>`;
+}
+
 async function loadProfile() {
   const { data, error } = await supabase
     .from("profiles")
@@ -811,6 +829,7 @@ async function showApp() {
   const renderUserId = currentUser.id;
 
   let content = "";
+  let settingsWeightTrend = null;
 
   try {
     await Promise.all([
@@ -820,7 +839,6 @@ async function showApp() {
     ]);
     if (generation !== appRenderGeneration || currentUser?.id !== renderUserId) return;
 
-    let settingsWeightTrend = null;
     if (currentTab === "settings") {
       settingsWeightTrend = await loadNutritionTrend(supabase, currentUser.id, homeDate.format(new Date())).catch(() => null);
       if (generation !== appRenderGeneration || currentUser?.id !== renderUserId) return;
@@ -888,21 +906,7 @@ async function showApp() {
           <p class="muted">目前體重會自動讀取最新一筆體重紀錄。</p></div>
         </details>
 
-        <section class="card settings-goal-preview">
-          <div class="settings-goal-heading"><div><p class="eyebrow">TODAY'S PLAN</p><h2>目前營養目標</h2></div>
-            ${nutritionPreview.ready ? `<span class="nutrition-goal-tag">${nutritionPreview.manual ? "手動熱量" : "階段自動"}</span>` : ""}</div>
-          ${nutritionPreview.ready ? `<div class="settings-goal-stats">
-            <div><span>每日熱量</span><b>${nutritionPreview.calorieTarget.toLocaleString("zh-TW")} kcal</b></div>
-            <div><span>蛋白質</span><b>${nutritionPreview.protein} g</b></div>
-            <div><span>碳水</span><b>${nutritionPreview.carbs} g</b></div>
-            <div><span>脂肪</span><b>${nutritionPreview.fat} g</b></div>
-          </div>
-          <p class="muted">${nutritionPreview.stageName ? `套用階段「${escapeHTML(nutritionPreview.stageName)}」：${nutritionPreview.targetWeight} kg · ${escapeHTML(nutritionPreview.targetDate)}，剩 ${nutritionPreview.daysRemaining} 天。` : "沒有進行中的階段，減脂模式會以維持熱量作為估算。"}</p>
-          ${nutritionPreview.manual ? '<p class="muted">目前自訂熱量會覆蓋階段自動熱量；清空「自訂熱量」並儲存即可恢復連動。</p>' : `<p class="muted">自動熱量參考 ${nutritionPreview.automaticTarget} kcal；依個人資料、目前體重與近期體重趨勢估算。</p>`}
-          ${nutritionPreview.warnings.map(warning => `<p class="muted" role="status">${escapeHTML(warning)}</p>`).join("")}
-          <details class="settings-goal-details"><summary>查看計算依據</summary>${renderNutritionBasis(nutritionPreview)}</details>`
-          : `<p class="muted">${escapeHTML(nutritionPreview.reason || `補齊${nutritionPreview.missing.map(escapeHTML).join("、")}後即可預覽目標。`)}</p>`}
-        </section>
+        ${renderSettingsNutritionPreview(nutritionPreview)}
 
         <details class="card settings-panel">
           <summary><span>目標階段</span><small>${stages.length ? `${stages.length} 個階段` : "尚未設定"}</small></summary>
@@ -1184,6 +1188,34 @@ async function showApp() {
   const profileForm = document.querySelector("#profileForm");
 
   if (profileForm) {
+    const refreshNutritionPreview = () => {
+      const f = new FormData(profileForm);
+      const optionalNumber = name => {
+        const value = f.get(name);
+        return value === "" || value === null ? null : Number(value);
+      };
+      const draftProfile = {
+        ...profile,
+        birth_date: f.get("birth_date") || null,
+        sex: f.get("sex"),
+        height_cm: optionalNumber("height_cm"),
+        start_weight_kg: optionalNumber("start_weight_kg"),
+        activity_level: f.get("activity_level"),
+        goal_mode: f.get("goal_mode"),
+        calorie_target_override: optionalNumber("calorie_target_override"),
+        protein_target_g: optionalNumber("protein_target_g"),
+        carbs_target_g: optionalNumber("carbs_target_g"),
+        fat_target_g: optionalNumber("fat_target_g"),
+        _stages: stages,
+        _weightTrend: settingsWeightTrend
+      };
+      const draftGoal = calculateNutrition(draftProfile, Number(latestWeight?.weight_kg) || draftProfile.start_weight_kg);
+      const preview = document.querySelector("#settingsGoalPreview");
+      if (preview) preview.outerHTML = renderSettingsNutritionPreview(draftGoal);
+    };
+    profileForm.addEventListener("input", refreshNutritionPreview);
+    profileForm.addEventListener("change", refreshNutritionPreview);
+
     profileForm.onsubmit = async event => {
       event.preventDefault();
       const f = new FormData(profileForm);
