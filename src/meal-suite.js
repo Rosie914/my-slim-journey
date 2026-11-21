@@ -27,6 +27,25 @@ function catalogPortion(food, grams) {
   return item;
 }
 
+function brandedPortion(food, amount) {
+  const factor = amount / 100;
+  const nutrients = food.nutrients || {};
+  const map = {calories:"calories", protein_g:"protein_g", carbs_g:"carbs_g", fat_g:"fat_g",
+    fiber_g:"fiber_g", sugar_g:"sugar_g", sodium_mg:"sodium_g"};
+  const item = {
+    food_name: [food.brand, food.name].filter(Boolean).join(" · "),
+    quantity: `${amount} ${food.unit}`,
+    serving_weight_g: food.unit === "g" ? amount : null,
+    nutrition_source: "food_database",
+    confidence: "medium"
+  };
+  for (const [key, nutrient] of Object.entries(map)) {
+    const value = nutrients[nutrient];
+    item[key] = Number.isFinite(value) ? Math.round(value * factor * (key === "sodium_mg" ? 1000 : 1) * 100) / 100 : null;
+  }
+  return item;
+}
+
 function splitRecipe(items, total, eaten) {
   if (![total, eaten].every(n => Number.isFinite(n) && n > 0) || eaten > total) {
     throw Error("請輸入大於零的份數，食用份數不能超過總份數。");
@@ -36,27 +55,69 @@ function splitRecipe(items, total, eaten) {
     for (const field of ["serving_weight_g", ...keys]) {
       if (item[field] != null) part[field] = Math.round(item[field] * (eaten / total) * 100) / 100;
     }
-    part.quantity = part.serving_weight_g + " g";
+    const unit = item.quantity?.endsWith(" ml") ? "ml" : "g";
+    const originalAmount = Number.parseFloat(item.quantity);
+    const amount = unit === "ml" ? originalAmount * eaten / total : part.serving_weight_g;
+    if (Number.isFinite(amount)) part.quantity = `${Math.round(amount * 100) / 100} ${unit}`;
     return part;
   });
 }
 
 function itemForm(item = {}, index = 0, chooseType = false) {
-  const source = item.nutrition_source ? sourceLabels[item.nutrition_source] : null;
-  return `<div class="ms-item" data-original-index="${index}">
+  const source = item.nutrition_source || "manual";
+  const missing = Object.entries(nutritionLabels).filter(([key]) => item[key] == null || item[key] === "").map(([, label]) => label);
+  return `<div class="ms-item" data-original-index="${index}" data-source="${esc(source)}">
     <div class="ms-row"><b>食物</b><button type="button" class="ms-remove diary-link">移除</button></div>
     ${chooseType ? `<label>餐別<select data-n="meal_type">${options(item.meal_type)}</select></label>` : ""}
     <label>食物名稱<input data-n="food_name" required value="${esc(item.food_name)}"></label>
     <label>份量（選填）<input data-n="quantity" value="${esc(item.quantity)}"></label>
+    <p class="ms-nutrition-status" data-nutrition-status>營養來源：${esc(sourceLabels[source] || "未標示")}${source === "ai_estimate" ? " · 請核對估算數值" : ""}${missing.length ? " · 待補 " + missing.join("、") : ""}</p>
     <div class="ms-grid">${numericFields(item, keys.slice(0, 4))}</div>
     <details><summary>更多營養欄位</summary>
       <label>重量 g（選填）<input data-n="serving_weight_g" type="number" min="0" step="any" value="${esc(item.serving_weight_g)}"></label>
       <div class="ms-grid">${numericFields(item, keys.slice(4))}</div>
-      ${source ? `<small>來源：${esc(source)}</small>` : ""}
     </details>
   </div>`;
 }
-const readItem=(el,original={})=>{const v=k=>el.querySelector(`[data-n="${k}"]`)?.value;const item={food_name:(v('food_name')||'').trim(),quantity:v('quantity')||null,serving_weight_g:num(v('serving_weight_g')),nutrition_source:original.nutrition_source||'manual',confidence:original.confidence||'medium'};for(const k of keys)item[k]=num(v(k));if(!item.food_name)throw Error('請輸入食物名稱');for(const k of [...keys,'serving_weight_g'])if(item[k]!=null&&(!Number.isFinite(item[k])||item[k]<0))throw Error('營養與重量不能是負數或無效數字');return item};
+function updateNutritionStatus(row) {
+  const missing = Object.entries(nutritionLabels).filter(([key]) =>
+    row.querySelector(`[data-n="${key}"]`)?.value === "").map(([, label]) => label);
+  const source = row.dataset.source || "manual";
+  row.querySelector("[data-nutrition-status]").textContent =
+    `營養來源：${sourceLabels[source] || "未標示"}${source === "ai_estimate" ? " · 請核對估算數值" : ""}${missing.length ? " · 待補 " + missing.join("、") : ""}`;
+}
+
+function bindNutritionStatus(form) {
+  form.addEventListener("input", event => {
+    const row = event.target.closest(".ms-item");
+    if (!row) return;
+    if (["quantity", "serving_weight_g", ...keys].includes(event.target.dataset.n)) {
+      row.dataset.source = "manual";
+      row.dataset.adjusted = "true";
+    }
+    updateNutritionStatus(row);
+  });
+}
+
+function readItem(el, original = {}) {
+  const value = key => el.querySelector(`[data-n="${key}"]`)?.value;
+  const adjusted = el.dataset.adjusted === "true";
+  const item = {
+    food_name: (value("food_name") || "").trim(),
+    quantity: value("quantity") || null,
+    serving_weight_g: num(value("serving_weight_g")),
+    nutrition_source: adjusted ? "manual" : el.dataset.source || original.nutrition_source || "manual",
+    confidence: adjusted ? "medium" : original.confidence || "medium"
+  };
+  for (const key of keys) item[key] = num(value(key));
+  if (!item.food_name) throw Error("請輸入食物名稱");
+  for (const key of [...keys, "serving_weight_g"]) {
+    if (item[key] != null && (!Number.isFinite(item[key]) || item[key] < 0)) {
+      throw Error("營養與重量不能是負數或無效數字");
+    }
+  }
+  return item;
+}
 const save=async(db,meals)=>{const {data,error}=await db.rpc('save_meals_with_items',{p_meals:meals});if(error)throw error;return data};
 
 const weekdayLabels = ["日", "一", "二", "三", "四", "五", "六"];
@@ -267,6 +328,7 @@ function addFields(entries = [], type = "breakfast") {
 
 function editItemFields(form, originals) {
   const root = form.querySelector("[data-items]");
+  bindNutritionStatus(form);
   form.querySelector("[data-add-item]").onclick = () => {
     root.insertAdjacentHTML("beforeend", itemForm({}, -1));
   };
@@ -494,8 +556,11 @@ export function initMealSuite(db, uid, config = {}) {
   }
 
   function openCatalog(type) {
-    openView("manual", `<form><label>食物名稱<input name="query" type="search" placeholder="例如：雞蛋、豆腐，或輸入英文" required></label>
-      <button type="submit">搜尋 USDA 資料庫</button></form>
+    openView("manual", `<form><label>搜尋範圍<select name="catalog">
+        <option value="brand">市售包裝食品（Open Food Facts）</option>
+        <option value="ingredient">一般食材（USDA）</option>
+      </select></label><label>食物名稱或條碼<input name="query" type="search" placeholder="例如：牛奶、燕麥、商品條碼" required></label>
+      <button type="submit">搜尋食物</button></form>
       <div data-results role="status"></div><section data-basket hidden></section>`);
     get("diaryDialogTitle").textContent = "搜尋食物資料庫";
     const form = body.querySelector("form");
@@ -507,9 +572,9 @@ export function initMealSuite(db, uid, config = {}) {
       const eaten = basket.querySelector("[data-eaten]")?.value ?? "1";
       const expanded = basket.querySelector("details")?.open;
       basket.hidden = portions.length === 0;
-      basket.innerHTML = `<h3>這一餐的食材</h3>${portions.map((item, i) =>
-        `<div class="diary-entry"><label>${esc(item.food.description)}（g）<input data-grams="${i}" type="number" min="0.1" step="any" value="${esc(item.grams)}"></label>
-        <button type="button" class="diary-link" aria-label="移除 ${esc(item.food.description)}" data-remove="${i}">移除</button></div>`
+      basket.innerHTML = `<h3>這一餐的食物</h3>${portions.map((item, i) =>
+        `<div class="diary-entry"><label>${esc(item.label)}（${esc(item.unit)}）<input data-grams="${i}" type="number" min="0.1" step="any" value="${esc(item.grams)}"></label>
+        <button type="button" class="diary-link" aria-label="移除 ${esc(item.label)}" data-remove="${i}">移除</button></div>`
       ).join("")}<details ${expanded ? "open" : ""}><summary>自煮分裝（等份）</summary>
         <label>整鍋共幾份<input data-servings type="number" step="any" min="0.01" value="${esc(total)}"></label>
         <label>這餐吃幾份<input data-eaten type="number" step="any" min="0.01" value="${esc(eaten)}"></label>
@@ -517,9 +582,9 @@ export function initMealSuite(db, uid, config = {}) {
       updatePreview();
     }
     function selectedPortions() {
-      const items = portions.map(({food, grams}) => {
-        if (!Number.isFinite(Number(grams)) || Number(grams) < 0.1) throw Error("每項食材請填至少 0.1 g。");
-        return catalogPortion(food, Number(grams));
+      const items = portions.map(({food, grams, kind}) => {
+        if (!Number.isFinite(Number(grams)) || Number(grams) < 0.1) throw Error("每項食物請填至少 0.1 g／mL。");
+        return kind === "brand" ? brandedPortion(food, Number(grams)) : catalogPortion(food, Number(grams));
       });
       return splitRecipe(items, Number(basket.querySelector("[data-servings]").value), Number(basket.querySelector("[data-eaten]").value));
     }
@@ -557,28 +622,62 @@ export function initMealSuite(db, uid, config = {}) {
     };
     const aliases = { 雞蛋:"egg", 蛋:"egg", 雞腿:"chicken thigh", 雞胸:"chicken breast", 白飯:"white rice cooked", 地瓜:"sweet potato", 豆腐:"tofu", 牛奶:"milk", 香蕉:"banana", 花椰菜:"broccoli", 鮭魚:"salmon", 燕麥:"oats", 吐司:"bread", 杏仁:"almonds" };
     let revision = 0;
+    form.elements.catalog.onchange = () => {
+      revision++;
+      results.textContent = "";
+      form.elements.query.placeholder = form.elements.catalog.value === "brand"
+        ? "例如：牛奶、燕麥、商品條碼" : "例如：雞蛋、豆腐，或輸入英文";
+    };
     form.onsubmit = async event => {
       event.preventDefault();
       const query = form.elements.query.value.trim();
+      const kind = form.elements.catalog.value;
       if (!query) return;
+      if (kind === "brand" && query.length < 2 && !/^\d{8,14}$/.test(query)) {
+        results.textContent = "請輸入至少兩個字，或完整商品條碼。";
+        return;
+      }
       const request = ++revision;
       results.textContent = "搜尋中…";
       try {
-        const alias = Object.entries(aliases).find(([name]) => query.includes(name))?.[1];
-        const params = new URLSearchParams({ query: alias || query, dataType:"SR Legacy", pageSize:"12", api_key:"DEMO_KEY" });
-        const response = await fetch("https://api.nal.usda.gov/fdc/v1/foods/search?" + params, {referrerPolicy:"no-referrer"});
-        if (!response.ok) throw Error(response.status === 429 ? "查詢已達上限，請稍後再試。" : "資料庫目前無法連線。");
-        const { foods = [] } = await response.json();
+        let foods;
+        if (kind === "brand") {
+          const { data, error } = await db.functions.invoke("search-branded-foods", { body: { query } });
+          if (error) throw Error("商品搜尋暫時無法使用，請確認 search-branded-foods 已部署，或改查一般食材。");
+          if (data?.error) throw Error(data.error);
+          foods = data?.products || [];
+        } else {
+          const alias = Object.entries(aliases).find(([name]) => query.includes(name))?.[1];
+          const params = new URLSearchParams({ query: alias || query, dataType:"SR Legacy", pageSize:"12", api_key:"DEMO_KEY" });
+          const response = await fetch("https://api.nal.usda.gov/fdc/v1/foods/search?" + params, {referrerPolicy:"no-referrer"});
+          if (!response.ok) throw Error(response.status === 429 ? "查詢已達上限，請稍後再試。" : "資料庫目前無法連線。");
+          ({ foods = [] } = await response.json());
+        }
         if (!results.isConnected || request !== revision) return;
-        if (!foods.length) { results.textContent = "查無結果，可改用英文名稱搜尋。"; return; }
-        results.innerHTML = `<label>搜尋結果<select data-food>${foods.map((food, i) => `<option value="${i}">${esc(food.description)}</option>`).join("")}</select></label>
-          <form><label>食材重量（g，分裝時填整鍋用量）<input name="grams" type="number" value="100" min="0.1" step="any" required></label><button>加入這一餐</button></form>`;
+        if (!foods.length) { results.textContent = "查無結果，可改用其他名稱、條碼，或切換搜尋範圍。"; return; }
+        const label = food => kind === "brand" ? [food.brand, food.name].filter(Boolean).join(" · ") : food.description;
+        results.innerHTML = `<label>搜尋結果<select data-food>${foods.map((food, i) => `<option value="${i}">${esc(label(food))}</option>`).join("")}</select></label>
+          <p data-food-detail class="diary-note"></p>
+          <form><label>食用量（<span data-unit>g</span>，分裝時填整鍋用量）<input name="grams" type="number" value="100" min="0.1" step="any" required></label><button>加入這一餐</button></form>
+          ${kind === "brand" ? '<p class="diary-note">商品資料由 <a href="https://world.openfoodfacts.org/" target="_blank" rel="noopener noreferrer">Open Food Facts</a> 提供（ODbL）。數值可能由社群提供，加入前請對照包裝標示。</p>' : '<p class="diary-note">一般食材資料：USDA FoodData Central。請留意熟重、生重及品種差異。</p>'}`;
+        const select = results.querySelector("[data-food]");
+        const quantity = results.querySelector('[name="grams"]');
+        const showDetail = () => {
+          const food = foods[Number(select.value)];
+          const unit = kind === "brand" ? food.unit : "g";
+          results.querySelector("[data-unit]").textContent = unit;
+          quantity.value = kind === "brand" && food.servingAmount > 0 ? food.servingAmount : 100;
+          const sample = kind === "brand" ? brandedPortion(food, 100) : catalogPortion(food, 100);
+          results.querySelector("[data-food-detail]").textContent = `每 100 ${unit}：熱量 ${sample.calories ?? "未標示"} kcal · 蛋白質 ${sample.protein_g ?? "未標示"} g${kind === "brand" ? ` · 條碼 ${food.code || "未提供"}` : ""}`;
+        };
+        select.onchange = showDetail;
+        showDetail();
         results.querySelector("form").onsubmit = e => {
           e.preventDefault();
-          const food = foods[Number(results.querySelector("select").value)];
+          const food = foods[Number(select.value)];
           const grams = Number(e.currentTarget.elements.grams.value);
           if (!Number.isFinite(grams) || grams <= 0) return;
-          portions.push({food, grams});
+          portions.push({food, grams, kind, label:label(food), unit:kind === "brand" ? food.unit : "g"});
           drawBasket();
           results.textContent = "已加入，可繼續搜尋或確認餐點。";
           form.elements.query.select();
@@ -728,6 +827,7 @@ export function initMealSuite(db, uid, config = {}) {
       <p data-review-summary class="diary-note" aria-live="polite"></p>
       <button type="submit">確認並儲存</button><p data-status role="status"></p></form>`, date);
     const form = body.querySelector("form");
+    bindNutritionStatus(form);
     const preview = form.querySelector("[data-review-summary]");
     const updateReviewSummary = () => {
       const rows = [...form.querySelector("[data-review-items]").children];

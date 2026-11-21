@@ -757,15 +757,17 @@ function renderOverviewPage(content, date) {
   return `<div id="overview-page" data-date="${date}" style="touch-action:pan-y pinch-zoom">
     <style>
       .overview-picker { margin:0 0 12px; padding:12px; background:#fff; border:1px solid #eee5e0; border-radius:20px; text-align:center; color:#493d3a }
-      .overview-picker-row { display:grid; align-items:center; grid-template-columns:auto 1fr auto; gap:4px }
-      .overview-picker-row button { width:auto; margin:0; padding:0 9px; min-height:44px; border-radius:12px; color:#644b63; background:#f4edf3; font-size:14px }
+      .overview-picker-row { display:grid; align-items:center; grid-template-columns:44px minmax(0, 1fr) 44px; gap:8px }
+      .overview-picker-row button { width:44px; margin:0; padding:0; min-height:44px; border-radius:12px; color:#644b63; background:#f4edf3; font-size:23px }
+      .overview-date { position:relative; display:grid; place-items:center; min-height:44px; border-radius:12px; background:#f4edf3; color:#644b63; font-size:16px }
+      .overview-date input { position:absolute; inset:0; width:100%; height:100%; margin:0; opacity:0; cursor:pointer; font-size:16px }
       .overview-picker small { display:block; margin-top:6px; color:#746663 }
     </style>
     <section class="overview-picker" aria-label="切換總覽日期">
       <div class="overview-picker-row">
-        <button type="button" data-offset="-1">‹ 前一天</button>
-        <strong aria-live="polite"><time datetime="${date}">${date.replaceAll("-", "/")}</time></strong>
-        <button type="button" data-offset="1">後一天 ›</button>
+        <button type="button" data-offset="-1" aria-label="前一天">&lt;</button>
+        <label class="overview-date"><strong><time datetime="${date}">${date.replaceAll("-", "/")}</time></strong><input type="date" value="${date}" aria-label="選擇總覽日期"></label>
+        <button type="button" data-offset="1" aria-label="後一天">&gt;</button>
       </div>
       <small>向右滑看前一天，向左滑看後一天</small>
     </section>
@@ -981,6 +983,11 @@ async function showApp() {
     };
     overview.querySelectorAll("[data-offset]").forEach(button => {
       button.onclick = () => move(Number(button.dataset.offset));
+    });
+    overview.querySelector('.overview-date input').addEventListener('change', event => {
+      if (!event.target.value) return;
+      overviewDate = event.target.value === homeDate.format(new Date()) ? null : event.target.value;
+      void showApp();
     });
     let start = null;
     overview.addEventListener("touchstart", event => {
