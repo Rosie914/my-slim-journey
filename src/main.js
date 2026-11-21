@@ -26,6 +26,7 @@ const appTabs = ["home", "meals", "activity", "weight", "reports", "coach", "set
 const savedTab = localStorage.getItem("msj-current-tab");
 let currentTab = appTabs.includes(savedTab) ? savedTab : "home";
 let diarySelection = null;
+let overviewDate = null;
 let profile = null;
 let stages = [];
 let latestWeight = null;
@@ -557,11 +558,11 @@ function renderHomeEnergyPlan(goal, recordedActivity) {
   const steps = recordedActivity === undefined ? "暫時無法讀取"
     : recordedActivity?.steps == null ? "尚未記錄" : homeNumber.format(Math.round(recordedActivity.steps)) + " 步";
   return `<section class="card">
-    <div class="home-row"><h2>今日運動</h2><button type="button" data-tab="activity" class="home-link">記錄運動 ›</button></div>
+    <div class="home-row"><h2>當日運動</h2><button type="button" data-tab="activity" class="home-link">記錄運動 ›</button></div>
     <div class="home-exercise-grid">
       <div><span>計畫額外運動</span><b>${goal.ready ? homeNumber.format(goal.plannedExtraActivity) + " kcal" : "—"}</b></div>
       <div><span>Apple 健康活動熱量</span><b>${actual}</b></div>
-      <div><span>今日步數</span><b>${steps}</b></div>
+      <div><span>當日步數</span><b>${steps}</b></div>
     </div>
     <p class="home-note">活動熱量包含日常活動與運動，不等同額外運動計畫完成量。若步數已同步但熱量顯示「尚未同步」，請在捷徑每日資料加入 activeCalories。</p>
   </section>`;
@@ -607,7 +608,7 @@ function renderCalorieMeter(actual, target) {
 }
 
 function renderHomeNutrition(goal, totals, date) {
-  if (!totals) return '<section class="card"><h2>今日營養攝取</h2><p>飲食紀錄暫時無法載入。</p></section>';
+  if (!totals) return '<section class="card"><h2>當日營養攝取</h2><p>飲食紀錄暫時無法載入。</p></section>';
   const complete = totals._complete || { calories: true, protein: true, carbs: true, fat: true };
   const remaining = goal.ready && complete.calories ? Math.round(goal.calorieTarget - totals.calories) : null;
   const actualCalories = complete.calories ? homeNumber.format(Math.round(totals.calories)) : "資料不完整";
@@ -620,7 +621,7 @@ function renderHomeNutrition(goal, totals, date) {
     ["脂肪", "fat", "rose"]
   ];
   return `<section class="card home-nutrition">
-    <div class="home-row"><h2>今日營養攝取</h2><span class="home-note">${date.slice(5).replace("-", "/")}</span></div>
+    <div class="home-row"><h2>當日營養攝取</h2><span class="home-note">${date.slice(5).replace("-", "/")}</span></div>
     <div class="home-row home-energy">
       <div><span class="home-note">${goal.ready ? (remaining === null ? "熱量統計" : remaining < 0 ? "超出目標" : "剩餘熱量") : "已攝取"}</span>
       <div class="home-number">${remaining === null ? actualCalories : homeNumber.format(Math.abs(remaining))}${actualCalories === "資料不完整" && remaining === null ? "" : " <small>kcal</small>"}</div></div>
@@ -691,7 +692,8 @@ function renderHomeTrend(weights, date) {
 }
 
 function renderHome(meals, weights, date, weightTrend, recordedActivity) {
-  const current = Number(latestWeight?.weight_kg) || Number(profile?.start_weight_kg) || null;
+  const weightAsOfDate = latestWeight?.logged_at && homeDate.format(new Date(latestWeight.logged_at)) <= date ? latestWeight.weight_kg : weights?.values().next().value;
+  const current = Number(weightAsOfDate) || Number(profile?.start_weight_kg) || null;
   const goal = calculateNutrition({ ...profile, _stages: stages, _weightTrend: weightTrend }, current, date);
   const stage = [...stages]
     .filter(entry => entry.target_date >= date && Number(entry.target_weight_kg) > 0)
@@ -732,8 +734,8 @@ function renderHome(meals, weights, date, weightTrend, recordedActivity) {
     ${renderHomeWeight(stage, current, Number(profile?.start_weight_kg))}
     ${renderHomeTrend(weights, date)}
     <section class="card">
-      <div class="home-row"><h2>今日餐點</h2><button type="button" data-tab="meals" class="home-link">記錄飲食 ›</button></div>
-      ${mealRows ? `<ul class="home-meals">${mealRows}</ul>` : `<p class="home-note">${meals ? "今天還沒有飲食紀錄。" : "餐點暫時無法載入。"}</p>`}
+      <div class="home-row"><h2>當日餐點</h2><button type="button" data-tab="meals" class="home-link">記錄飲食 ›</button></div>
+      ${mealRows ? `<ul class="home-meals">${mealRows}</ul>` : `<p class="home-note">${meals ? "當天還沒有飲食紀錄。" : "餐點暫時無法載入。"}</p>`}
     </section>
     <section class="card home-coach">
       <div class="home-row"><h2>Coach</h2><button type="button" data-tab="coach" class="home-link">查看建議 ›</button></div>
@@ -742,7 +744,7 @@ function renderHome(meals, weights, date, weightTrend, recordedActivity) {
   </main>`;
 }
 
-const sectionTitles = { home: "今日", meals: "飲食日曆", activity: "運動", weight: "趨勢", reports: "趨勢", coach: "Coach", settings: "帳號與設定" };
+const sectionTitles = { home: "每日總覽", meals: "飲食日曆", activity: "運動", weight: "趨勢", reports: "趨勢", coach: "Coach", settings: "帳號與設定" };
 const tabIcons = {
   home: '<path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M9 21v-7h6v7"/>',
   meals: '<rect x="3" y="5" width="18" height="16" rx="3"/><path d="M7 3v4m10-4v4M3 10h18m-14 5h2m3 0h2m3 0h1"/>',
@@ -750,6 +752,26 @@ const tabIcons = {
   weight: '<path d="M4 4v16h16M7 15l4-4 3 2 5-6"/>',
   coach: '<path d="M12 3l2.1 6.9L21 12l-6.9 2.1L12 21l-2.1-6.9L3 12l6.9-2.1z"/>'
 };
+
+function renderOverviewPage(content, date) {
+  return `<div id="overview-page" data-date="${date}" style="touch-action:pan-y pinch-zoom">
+    <style>
+      .overview-picker { margin:0 0 12px; padding:12px; background:#fff; border:1px solid #eee5e0; border-radius:20px; text-align:center; color:#493d3a }
+      .overview-picker-row { display:grid; align-items:center; grid-template-columns:auto 1fr auto; gap:4px }
+      .overview-picker-row button { width:auto; margin:0; padding:0 9px; min-height:44px; border-radius:12px; color:#644b63; background:#f4edf3; font-size:14px }
+      .overview-picker small { display:block; margin-top:6px; color:#746663 }
+    </style>
+    <section class="overview-picker" aria-label="切換總覽日期">
+      <div class="overview-picker-row">
+        <button type="button" data-offset="-1">‹ 前一天</button>
+        <strong aria-live="polite"><time datetime="${date}">${date.replaceAll("-", "/")}</time></strong>
+        <button type="button" data-offset="1">後一天 ›</button>
+      </div>
+      <small>向右滑看前一天，向左滑看後一天</small>
+    </section>
+    ${content}
+  </div>`;
+}
 
 function renderAppShell(content) {
   const trend = currentTab === "weight" || currentTab === "reports";
@@ -813,7 +835,7 @@ function renderAppShell(content) {
         <button id="applyHealthImport" type="button" disabled>匯入預覽資料</button>
       </details>
       <button id="logout" type="button" class="account-logout">登出</button></section>` : ""}
-    ${content}
+    ${currentTab === "home" ? renderOverviewPage(content, overviewDate ?? homeDate.format(new Date())) : content}
     <nav class="app-tabs" aria-label="主要導覽">
       ${tab("home", "今日", currentTab === "home")}
       ${tab("meals", "飲食", currentTab === "meals")}
@@ -845,7 +867,7 @@ async function showApp() {
     }
 
     if (currentTab === "home") {
-      const date = homeDate.format(new Date());
+      const date = overviewDate ?? homeDate.format(new Date());
       const [meals, weights, trend, activity] = await Promise.allSettled([
         loadHomeMeals(currentUser.id, date),
         loadHomeWeights(currentUser.id, date),
@@ -950,6 +972,31 @@ async function showApp() {
 
   if (generation !== appRenderGeneration || currentUser?.id !== renderUserId) return;
   app.innerHTML = renderAppShell(content);
+  const overview = app.querySelector("#overview-page");
+  if (overview) {
+    const move = offset => {
+      overviewDate = shiftHomeDate(overviewDate ?? overview.dataset.date, offset);
+      if (overviewDate === homeDate.format(new Date())) overviewDate = null;
+      void showApp();
+    };
+    overview.querySelectorAll("[data-offset]").forEach(button => {
+      button.onclick = () => move(Number(button.dataset.offset));
+    });
+    let start = null;
+    overview.addEventListener("touchstart", event => {
+      start = event.touches.length === 1 && !event.target.closest("button,input,summary,a")
+        ? event.touches[0] : null;
+    }, { passive: true });
+    overview.addEventListener("touchcancel", () => { start = null; });
+    overview.addEventListener("touchend", event => {
+      if (!start) return;
+      const end = event.changedTouches[0];
+      const dx = end.clientX - start.clientX;
+      const dy = end.clientY - start.clientY;
+      start = null;
+      if (Math.abs(dx) >= 55 && Math.abs(dx) > 1.6 * Math.abs(dy)) move(dx < 0 ? 1 : -1);
+    }, { passive: true });
+  }
 
   const analyticsTab = currentTab;
   const analyticsUser = currentUser.id;
@@ -974,7 +1021,7 @@ async function showApp() {
       const next = button.dataset.tab;
       if (currentTab === next) return;
       if (next === "settings") settingsReturnTab = currentTab;
-      if (button.closest(".home-dashboard") && next === "meals") diarySelection = null;
+      if (button.closest(".home-dashboard") && next === "meals") diarySelection = overviewDate;
       currentTab = next;
       localStorage.setItem("msj-current-tab", next);
       window.scrollTo(0, 0);
