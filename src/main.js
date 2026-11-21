@@ -421,6 +421,9 @@ const homeStyles = `<style>
   .home-dashboard .card { padding:16px 18px; margin:0 0 12px; border-radius:22px; }
   .home-dashboard h2 { color:#493d3a; font-size:18px; letter-spacing:.015em; margin:0; }
   .home-row { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .home-row-actions { display:flex; align-items:center; gap:7px; }
+  .home-refresh { min-height:36px; padding:7px 10px; border:1px solid #e5dbe1; border-radius:11px; color:#654b60; background:#fff; font:inherit; font-size:12px; font-weight:700; }
+  .home-refresh:disabled { opacity:.6; }
   .home-note { color:#766762; font-size:13px; line-height:1.45; }
   .home-energy { align-items:flex-end; margin:13px 0 9px; }
   .home-energy-side { text-align:right; }
@@ -558,13 +561,13 @@ function renderHomeEnergyPlan(goal, recordedActivity) {
   const steps = recordedActivity === undefined ? "暫時無法讀取"
     : recordedActivity?.steps == null ? "尚未記錄" : homeNumber.format(Math.round(recordedActivity.steps)) + " 步";
   return `<section class="card">
-    <div class="home-row"><h2>當日運動</h2><button type="button" data-tab="activity" class="home-link">記錄運動 ›</button></div>
+    <div class="home-row"><h2>當日運動</h2><div class="home-row-actions"><button type="button" id="homeHealthRefresh" class="home-refresh" aria-label="重新讀取 Apple 健康資料">↻ 更新</button><button type="button" data-tab="activity" class="home-link">記錄運動 ›</button></div></div>
     <div class="home-exercise-grid">
       <div><span>計畫額外運動</span><b>${goal.ready ? homeNumber.format(goal.plannedExtraActivity) + " kcal" : "—"}</b></div>
       <div><span>Apple 健康活動熱量</span><b>${actual}</b></div>
       <div><span>當日步數</span><b>${steps}</b></div>
     </div>
-    <p class="home-note">活動熱量包含日常活動與運動，不等同額外運動計畫完成量。若步數已同步但熱量顯示「尚未同步」，請在捷徑每日資料加入 activeCalories。</p>
+    <p class="home-note" id="homeHealthStatus">活動熱量包含日常活動與運動，不等同額外運動計畫完成量。更新會重新讀取捷徑最近上傳的資料。</p>
   </section>`;
 }
 
@@ -1004,6 +1007,15 @@ async function showApp() {
       if (Math.abs(dx) >= 55 && Math.abs(dx) > 1.6 * Math.abs(dy)) move(dx < 0 ? 1 : -1);
     }, { passive: true });
   }
+
+  const homeHealthRefresh = app.querySelector("#homeHealthRefresh");
+  if (homeHealthRefresh) homeHealthRefresh.onclick = async () => {
+    const status = app.querySelector("#homeHealthStatus");
+    homeHealthRefresh.disabled = true;
+    homeHealthRefresh.textContent = "↻ 更新中";
+    if (status) status.textContent = "正在重新讀取捷徑最近上傳的 Apple 健康資料…";
+    await showApp();
+  };
 
   const analyticsTab = currentTab;
   const analyticsUser = currentUser.id;

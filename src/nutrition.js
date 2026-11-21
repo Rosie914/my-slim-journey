@@ -70,7 +70,8 @@ export function calculateNutrition(profile, currentWeight, today = day()) {
  const override = num(profile?.calorie_target_override);
  const manual = override !== null && override >= floor;
  const calorieTarget = manual ? Math.round(override) : automaticTarget;
- const protein = Math.round(Math.max(0, num(profile?.protein_target_g) ?? weight * 1.6));
+ // Moderate weight-management default; a manual setting still takes precedence.
+ const protein = Math.round(Math.max(0, num(profile?.protein_target_g) ?? weight * 1.4));
  const fat = Math.round(Math.max(0, num(profile?.fat_target_g) ?? weight * 0.8));
  const carbs = Math.round(Math.max(0, num(profile?.carbs_target_g) ?? (calorieTarget - protein * 4 - fat * 9) / 4));
  const macroCalories = protein * 4 + carbs * 4 + fat * 9;
