@@ -14,3 +14,18 @@
 .msj-home-fat-stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:14px 0}.msj-home-fat-stats>div{background:#faf5f8;border-radius:13px;padding:12px}
 .msj-home-fat-stats span{display:block;color:#9a8a96;font-size:11px}.msj-home-fat-stats strong{display:block;color:#735b75;font-size:24px;margin-top:5px}
 .msj-home-chart-title{font-size:12px;color:#8c7a89;font-weight:700;margin:13px 0 6px}
+
+/* UI review improvements */
+.msj-home-chart-heading{display:flex;justify-content:space-between;align-items:center;margin:18px 0 6px;gap:8px}
+.msj-home-chart-heading h3{margin:0;font-size:14px;color:#5e4d60}
+.msj-home-chart-heading span{font-size:12px;color:#958596}
+.msj-trend-selected{margin:7px 0 0;text-align:center;min-height:20px;font-size:13px;color:#715b7b;font-variant-numeric:tabular-nums}
+.msj-trend-graph [data-chart-point]{cursor:pointer;outline:none;touch-action:manipulation}
+.msj-trend-graph [data-chart-point]:focus-visible{stroke-width:5;stroke:#745b95}
+.msj-trend-graph [data-chart-point][aria-pressed="true"]{stroke-width:4;fill:#f4ebfa}
+.msj-trend-foot,.msj-trend-heading span{font-size:12px;line-height:1.5}
+.msj-trend-period button{min-height:44px;font-size:14px}
+.msj-goal-progress-label{font-size:13px}
+.msj-home-fat-stats span{font-size:12px}
+.msj-trends-panel .msj-trend-section+.msj-trend-section{border-top:1px solid #f0e9ef;padding-top:18px}
+@media(max-width:380px){.msj-trend-heading{align-items:flex-start;flex-direction:column}.msj-home-fat-stats strong{font-size:21px}}

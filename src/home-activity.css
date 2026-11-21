@@ -30,3 +30,5 @@
 .msj-activity-legend i.is-hit{background:#aa83c6}
 .msj-activity-steps{border-top:1px solid #f0e7ef;padding-top:13px;font-size:13px;color:#887b83}.msj-activity-steps strong{color:#6e536b}
 @media(max-width:360px){.msj-activity-top>div{padding:12px 9px}.msj-activity-chart{gap:5px}}
+
+.msj-activity-chart-title small{font-size:12px}.msj-activity-progress-foot{font-size:12px}

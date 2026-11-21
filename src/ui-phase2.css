@@ -1,0 +1,44 @@
+/* My Slim Journey — Phase 2: mobile diary and activity polish.
+   Additive styles: no changes to storage, calories or Health sync logic. */
+:root{--msj-ink:#493d3a;--msj-muted:#71636b;--msj-rose:#d5a2b8;--msj-lilac:#a795c6;--msj-border:#eae0e5;--msj-surface:#fffdfc}
+.diary,.an-day-card,.an-activity-week-card{color:var(--msj-ink)}
+/* Diary: visually elevate the one action users repeat most. */
+.diary-overview #diaryAdd{min-height:48px;padding:12px 17px;border-radius:15px;background:#65465e;color:#fff;font-size:14px;font-weight:750;box-shadow:0 5px 15px #65465e1c}
+.diary-overview #diaryAdd:active{transform:translateY(1px)}
+.diary-calorie-summary{border:1px solid #f0e4ea;border-radius:19px;background:linear-gradient(135deg,#fcf6f8,#f6f0f9);padding:16px;flex-wrap:wrap}
+.diary-calorie-summary strong{font-size:clamp(24px,6vw,30px);line-height:1.2}
+.diary-macro-row{min-width:0}
+.diary-macro-list{gap:15px}
+.diary-methods{gap:10px}
+.diary-methods button{min-height:52px;padding:12px 14px;border:1px solid #e9dce7;border-radius:15px;background:#f8f1f6;color:#50394a;font-size:14px;line-height:1.4}
+.diary-methods button:active{background:#eee2ec}
+.diary-meal-heading{gap:10px;flex-wrap:wrap}
+.diary-empty-meals button{min-height:44px;padding:10px 14px;font-size:13px}
+.diary-entry-content b{font-size:14px;line-height:1.5}
+.diary-note,.diary-empty-meals>small{font-size:13px;line-height:1.55}
+.diary .diary-link{min-height:44px}
+.diary dialog{max-height:min(88dvh,780px);overscroll-behavior:contain}
+.diary input,.diary textarea,.an-form input{font-size:16px}
+/* Activity: sync state, steps, workout list and touch controls. */
+.an-activity-sync-status{display:block;font-size:13px;line-height:1.5;color:#65576a;overflow-wrap:anywhere}
+.an-activity-sync-status:empty{display:none}
+.an-activity-data-notice{font-size:13px;line-height:1.55;border-radius:13px}
+.an-activity-load-status{font-size:13px;line-height:1.5}
+.an-head-actions{flex-wrap:wrap;justify-content:flex-end}
+.an-refresh-button{min-height:44px;padding:10px 14px;font-size:13px;border-radius:13px}
+.an-activity-editor summary{min-height:44px;display:flex;align-items:center;justify-content:center;border-radius:13px;padding:10px 14px;font-size:13px}
+.an-activity-metrics{gap:10px}
+.an-activity-metrics small{font-size:12px;line-height:1.4}
+.an-activity-metrics b{font-variant-numeric:tabular-nums}
+.an-activity-week-row{min-height:48px;gap:8px}
+.an-record-copy{min-width:0;overflow-wrap:anywhere}
+.an-record-copy b{font-size:14px;line-height:1.45}
+.an-record-copy small{font-size:12px;line-height:1.5}
+.an-activity-actions button{min-height:44px;min-width:44px;font-size:12px;padding:9px}
+.an-empty-state small{font-size:13px;line-height:1.5}
+.an-calendar-day{min-height:44px}
+.an-calendar-footer>button{min-height:44px}
+/* Global accessibility and reduced motion. */
+.diary :is(button,summary,input,textarea,select):focus-visible,.an-day-card :is(button,summary,input,textarea,select):focus-visible,.an-activity-calendar-card button:focus-visible{outline:3px solid #80629b;outline-offset:2px}
+@media(max-width:390px){.diary-calorie-summary{gap:8px}.an-day-card .an-section-head{align-items:flex-start;flex-wrap:wrap}.an-head-actions{width:100%;justify-content:flex-start}.an-activity-week-row{font-size:12px}.diary-meal-heading{align-items:flex-start}}
+@media(prefers-reduced-motion:reduce){.diary-overview #diaryAdd{transition:none}.an-refresh-button.is-loading span{animation:none}}

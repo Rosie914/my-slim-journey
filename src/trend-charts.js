@@ -24,9 +24,9 @@ export function trendLineChart(points, {unit = '', target = null, color = '#b58b
     <text x="${L-5}" y="${T+3}" text-anchor="end" class="msj-chart-axis">${fmt(max)}</text><text x="${L-5}" y="${bottom}" text-anchor="end" class="msj-chart-axis">${fmt(min)}</text>
     ${targetLine}
     ${lines.map(a=>a.length>1?`<polyline points="${a.join(' ')}" fill="none" stroke="${color}" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>`:'').join('')}
-    ${clean.map((p,i)=>p.value===null?'':`<circle cx="${x(i)}" cy="${y(p.value)}" r="4" fill="white" stroke="${color}" stroke-width="2.3"><title>${safe(p.date)}：${fmt(p.value)} ${safe(unit)}</title></circle>`).join('')}
+    ${clean.map((p,i)=>p.value===null?'':`<circle cx="${x(i)}" cy="${y(p.value)}" r="5" fill="white" stroke="${color}" stroke-width="2.3" tabindex="0" role="button" aria-pressed="false" aria-label="${safe(p.date)}：${fmt(p.value)} ${safe(unit)}" data-chart-point="${safe(p.date)}：${fmt(p.value)} ${safe(unit)}"><title>${safe(p.date)}：${fmt(p.value)} ${safe(unit)}</title></circle>`).join('')}
     <text x="${L}" y="${height-5}" class="msj-chart-axis">${safe(clean[0].date.slice(5).replace('-','/'))}</text><text x="${W-R}" y="${height-5}" text-anchor="end" class="msj-chart-axis">${safe(clean.at(-1).date.slice(5).replace('-','/'))}</text>
-  </svg></div>`;
+  </svg><p class="msj-trend-selected" aria-live="polite">點選圖表圓點，查看日期與數值</p></div>`;
 }
 
 export function goalProgress(start,current,target,unit,lowerIsBetter=true){
@@ -45,7 +45,9 @@ export async function mountWeightTrends(db,uid,profile){
   if(existing)existing.remove();
   const panel=document.createElement('section');panel.id='msjWeightTrendPanel';panel.className='card msj-trends-panel';
   panel.innerHTML='<div class="msj-trend-heading"><h2>體重與體脂趨勢</h2><span>實際紀錄 · 未測量不補值</span></div><div class="msj-trend-period" role="group" aria-label="趨勢期間"><button type="button" data-period="7">7 天</button><button type="button" data-period="30" class="active">30 天</button><button type="button" data-period="90">90 天</button></div><div id="msjWeightTrendContent">正在載入…</div>';
-  anchor.closest('section.card')?.before(panel);
+  const legacyCard=anchor.closest('section.card');
+  legacyCard?.before(panel);
+  if(legacyCard)legacyCard.hidden=true;
   let period=30,rows=[],error=null;
   try {
     const since=new Date();since.setHours(0,0,0,0);since.setDate(since.getDate()-89);
@@ -61,7 +63,8 @@ export async function mountWeightTrends(db,uid,profile){
     const weights=dates.map(date=>({date,value:byDay.get(date)?.weight??null}));
     const fats=dates.map(date=>({date,value:byDay.get(date)?.fat??null}));
     const targetFat=profile?.target_body_fat_pct==null?null:Number(profile.target_body_fat_pct);
-    content.innerHTML=`<div class="msj-trend-section"><h3>體重 <small>kg</small></h3>${trendLineChart(weights,{unit:'kg',label:'體重',color:'#a795c6'})}</div><div class="msj-trend-section"><h3>體脂 <small>%</small></h3>${trendLineChart(fats,{unit:'%',label:'體脂',color:'#d5a2b8',target:targetFat})}${targetFat!=null?`<p class="msj-trend-foot">目標體脂 ${targetFat.toFixed(1)}% · 虛線為目標</p>`:''}</div>`;
+    const weightCount=weights.filter(p=>p.value!=null).length, fatCount=fats.filter(p=>p.value!=null).length;
+    content.innerHTML=`<div class="msj-trend-section"><h3>體重 <small>kg · ${weightCount} 天有紀錄</small></h3>${trendLineChart(weights,{unit:'kg',label:'體重',color:'#a795c6'})}</div><div class="msj-trend-section"><h3>體脂 <small>% · ${fatCount} 天有紀錄</small></h3>${trendLineChart(fats,{unit:'%',label:'體脂',color:'#d5a2b8',target:targetFat})}${targetFat!=null?`<p class="msj-trend-foot">目標體脂 ${targetFat.toFixed(1)}% · 虛線為目標</p>`:''}</div>`;
   }
   panel.querySelectorAll('[data-period]').forEach(b=>b.onclick=()=>{period=Number(b.dataset.period);panel.querySelectorAll('[data-period]').forEach(x=>x.classList.toggle('active',x===b));draw();});
   draw();

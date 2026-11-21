@@ -1,0 +1,43 @@
+/* Phase 3: coherent, accessible iPhone-first UI across Coach and Settings. */
+:root{--msj-ink:#493d3a;--msj-muted:#756b70;--msj-rose:#d5a2b8;--msj-lavender:#a795c6;--msj-line:#ebe3e7;--msj-paper:#fffdfb}
+/* Scope settings styles so diary and chart controls keep their own semantics. */
+.settings-panel{border:1px solid var(--msj-line);border-radius:20px;overflow:hidden;background:var(--msj-paper)}
+.settings-panel>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:58px;padding:16px;cursor:pointer;list-style:none;color:var(--msj-ink)}
+.settings-panel>summary::-webkit-details-marker{display:none}
+.settings-panel>summary>span{font-size:16px;font-weight:750;line-height:1.3}
+.settings-panel>summary>small{font-size:12px;line-height:1.45;text-align:right;color:var(--msj-muted)}
+.settings-panel>summary:after{content:'⌄';font-size:18px;color:#927c94;transition:transform .2s}
+.settings-panel[open]>summary:after{transform:rotate(180deg)}
+.settings-panel[open]>summary{border-bottom:1px solid var(--msj-line)}
+.settings-panel-body{padding:16px}
+.settings-panel-body form{display:grid;gap:12px}
+.settings-panel-body label{display:grid;gap:6px;min-width:0;font-size:14px;font-weight:600;color:var(--msj-ink)}
+.settings-panel-body :is(input,select){width:100%;min-width:0;min-height:44px;font-size:16px}
+.settings-panel-body details:not(.settings-panel){border:1px solid var(--msj-line);border-radius:14px;padding:12px;background:#fbf8fb}
+.settings-panel-body details>summary{font-size:14px;font-weight:700;cursor:pointer;color:#664d66}
+.settings-panel-body .stage-row{border:1px solid var(--msj-line);border-radius:14px;padding:13px;margin:10px 0;background:#fff}
+.settings-panel-body .stage-row button{min-height:40px;margin:5px 6px 0 0}
+.settings-goal-preview{border:1px solid #ece1ed;border-radius:20px;background:linear-gradient(145deg,#fffdfb,#f8f2fa)}
+.app-account{border-radius:20px}
+.app-account>details{border-top:1px solid var(--msj-line);padding-block:5px}
+.app-account>details>summary{min-height:48px;padding:12px 4px;cursor:pointer;font-size:14px;font-weight:700;color:var(--msj-ink)}
+.app-account :is(button,input,select){min-height:44px}
+.app-account :is(p,li){line-height:1.6;overflow-wrap:anywhere}
+.health-sync-guide pre{max-width:100%;overflow-x:auto}
+/* Coach: make actionable content scan-friendly instead of an uninterrupted text wall. */
+.an-coach,.coach-feedback,.coach-ai,.coach-ai-result{line-height:1.65;color:var(--msj-ink)}
+.an-coach>*,.coach-feedback,.coach-ai{max-width:100%}
+.coach-feedback{border:1px solid #ece3ee;border-radius:18px;padding:16px;background:linear-gradient(135deg,#faf6fc,#fffaf9)}
+.coach-feedback h3,.coach-ai h3{font-size:16px;line-height:1.4;margin:0 0 10px;color:#5e4967}
+.coach-feedback ul{margin:0;padding-left:21px}
+.coach-feedback li{margin:0 0 11px;font-size:14px;line-height:1.65}
+.coach-feedback li:last-child{margin-bottom:0}
+.coach-ai{border:1px solid var(--msj-line);border-radius:18px;padding:16px;background:var(--msj-paper)}
+.coach-ai-result{overflow-wrap:anywhere}
+.coach-ai-history>summary,.coach-ai-history-item>summary{min-height:44px;display:flex;align-items:center;cursor:pointer;font-size:14px}
+.coach-plan-comparison{border-top:1px solid var(--msj-line);padding-top:12px;margin-top:12px}
+.coach-plan-comparison li{font-size:14px;line-height:1.6}
+/* Common interactive focus and reduced-motion preference. */
+:is(.settings-panel,.app-account,.an-coach) :is(button,summary,input,select,textarea):focus-visible{outline:3px solid #a795c6;outline-offset:3px}
+@media(max-width:420px){.settings-panel>summary{padding:14px 12px}.settings-panel-body{padding:12px}.settings-panel>summary>small{max-width:44%}.coach-feedback,.coach-ai{padding:13px}}
+@media(prefers-reduced-motion:reduce){.settings-panel>summary:after{transition:none}}
