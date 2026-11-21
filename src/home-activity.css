@@ -32,3 +32,5 @@
 @media(max-width:360px){.msj-activity-top>div{padding:12px 9px}.msj-activity-chart{gap:5px}}
 
 .msj-activity-chart-title small{font-size:12px}.msj-activity-progress-foot{font-size:12px}
+
+.msj-activity-date{color:#76506b;font-weight:750;font-size:13px}.msj-activity-caption{line-height:1.6}

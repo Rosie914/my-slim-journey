@@ -612,6 +612,9 @@ function homeActivityTarget(goal) {
 }
 
 function renderHomeEnergyPlan(goal, recordedActivity, date) {
+  const today = homeDate.format(new Date());
+  const isToday = date === today;
+  const dayLabel = isToday ? "今日" : date.replaceAll("-", "/");
   const target = homeActivityTarget(goal);
   const rawCalories = recordedActivity?.calories;
   const actual = rawCalories != null && Number.isFinite(Number(rawCalories)) ? Math.max(0, Number(rawCalories)) : null;
@@ -619,9 +622,9 @@ function renderHomeEnergyPlan(goal, recordedActivity, date) {
     : recordedActivity?.steps == null ? "尚未記錄" : homeNumber.format(Math.round(recordedActivity.steps)) + " 步";
   const percent = actual !== null && target ? Math.round(actual / target * 100) : null;
   const difference = actual !== null && target ? Math.round(actual - target) : null;
-  const status = difference === null ? (recordedActivity === undefined ? "活動資料暫時無法讀取" : "尚未同步活動熱量")
+  const status = difference === null ? (recordedActivity === undefined ? "活動資料暫時無法讀取" : `「${dayLabel}」尚未同步活動熱量`)
     : difference > 0 ? "超過目標 " + homeNumber.format(difference) + " kcal"
-    : difference === 0 ? "剛好達成今日目標"
+    : difference === 0 ? "剛好達成當日目標"
     : "距離目標還差 " + homeNumber.format(-difference) + " kcal";
   const scale = Math.max(target || 1, actual || 0, 1);
   const normalWidth = target && actual !== null ? Math.min(actual, target) / scale * 100 : 0;
@@ -632,18 +635,18 @@ function renderHomeEnergyPlan(goal, recordedActivity, date) {
   const activityLine = trendLineChart(history.map(item => ({date:item.day,value:item.calories})), {unit:'kcal',target,label:'每日活動消耗',color:'#a78ac5'});
   return `<section class="card msj-activity-card">
     <div class="home-row"><h2>每日活動消耗</h2><div class="home-row-actions"><button type="button" id="homeHealthRefresh" class="home-refresh" aria-label="重新讀取 Apple 健康資料">↻ 更新</button><button type="button" data-tab="activity" class="home-link">記錄運動 ›</button></div></div>
-    <p class="msj-activity-caption">Apple 健康活動能量 · 包含日常活動與運動</p>
-    <div class="msj-activity-top"><div><span>當日已消耗</span><strong>${actual === null ? "—" : homeNumber.format(Math.round(actual))}</strong><small>kcal</small></div>
+    <p class="msj-activity-caption"><strong class="msj-activity-date">${dayLabel}活動紀錄</strong> · Apple 健康活動能量（包含日常活動與運動）</p>
+    <div class="msj-activity-top"><div><span>${isToday ? "今日已消耗" : "選定日期消耗"}</span><strong>${actual === null ? "—" : homeNumber.format(Math.round(actual))}</strong><small>kcal</small></div>
       <div><span>每日估算目標</span><strong>${target == null ? "—" : homeNumber.format(target)}</strong><small>kcal</small></div></div>
     <div class="msj-activity-progress-title"><strong>當日活動進度</strong><span>${percent == null ? "尚無資料" : percent + "%"}</span></div>
     <div class="msj-activity-track" role="img" aria-label="${escapeHTML(status)}"><span class="msj-activity-fill" style="width:${normalWidth}%"></span><span class="msj-activity-over" style="left:${normalWidth}%;width:${extraWidth}%"></span>${target ? `<i style="left:${targetPosition}%"></i>` : ""}</div>
     <div class="msj-activity-progress-foot"><span>0 kcal</span><span>目標 ${target == null ? "—" : homeNumber.format(target)} kcal</span></div>
     <p class="msj-activity-status ${difference !== null && difference >= 0 ? "is-hit" : ""}">${status}</p>
-    <div class="msj-activity-chart-title"><strong>最近 7 天</strong><small>每日活動能量 (kcal)</small></div>
+    <div class="msj-activity-chart-title"><strong>截至 ${dayLabel} 的 7 天</strong><small>每日活動能量 (kcal)</small></div>
     ${activityLine}
     <p class="msj-trend-foot">圓點可查看日期與數值 · 虛線為每日目標 · 缺少資料不補零</p>
-    <div class="msj-activity-steps"><span>當日步數</span><strong>${steps}</strong></div>
-    <p class="home-note" id="homeHealthStatus">活動目標依活動程度及減重階段估算，與額外運動目標不同；不會把消耗熱量自動加回飲食額度。未同步日期不視為 0 kcal。更新會重新讀取已上傳的資料。</p>
+    <div class="msj-activity-steps"><span>${isToday ? "今日步數" : "選定日期步數"}</span><strong>${steps}</strong></div>
+    <p class="home-note" id="homeHealthStatus">活動目標依活動程度及減重階段估算，與額外運動目標不同；不會把消耗熱量自動加回飲食額度。未同步日期不視為 0 kcal。目前查看 ${date.replaceAll("-", "/")}；切換上方日期會同步更新此卡數值、步數與七日折線圖。更新僅重新讀取已上傳的資料。</p>
   </section>`;
 }
 
