@@ -10,6 +10,7 @@ import { calculateNutrition, renderNutritionBasis } from "./nutrition.js";
 import { renderMealSuite, initMealSuite } from "./meal-suite.js";
 import "./meal-suite.css";
 import "./style.css";
+import "./home-activity.css";
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -529,45 +530,93 @@ async function loadHomeWeights(userId, date) {
 }
 
 async function loadHomeActivityCalories(userId, date) {
-  const from = new Date(date + "T00:00:00+08:00").toISOString();
+  const from = new Date(shiftHomeDate(date, -6) + "T00:00:00+08:00").toISOString();
   const to = new Date(shiftHomeDate(date, 1) + "T00:00:00+08:00").toISOString();
   const entries = [];
   const pageSize = 500;
   for (let offset = 0; ; offset += pageSize) {
-    const { data, error } = await supabase.from("activity_logs").select("activity_type,calories_burned,steps")
+    const { data, error } = await supabase.from("activity_logs")
+      .select("activity_type,calories_burned,steps,logged_at")
       .eq("user_id", userId).gte("logged_at", from).lt("logged_at", to)
       .order("id").range(offset, offset + pageSize - 1);
     if (error) throw error;
-    entries.push(...data);
-    if (data.length < pageSize) {
-      const dailySummary = entries.find(entry => entry.activity_type === "Apple 健康每日摘要");
-      const workouts = entries.filter(entry => entry.activity_type !== "Apple 健康每日摘要");
-      const stepRows = workouts.filter(entry => entry.steps !== null);
-      return {
-        calories: dailySummary?.calories_burned != null
-          ? Number(dailySummary.calories_burned)
-          : null,
-        steps: dailySummary?.steps != null
-          ? Number(dailySummary.steps)
-          : stepRows.length ? stepRows.reduce((sum, entry) => sum + Number(entry.steps), 0) : null
-      };
-    }
+    entries.push(...(data || []));
+    if ((data || []).length < pageSize) break;
   }
+  const days = new Map();
+  for (const entry of entries) {
+    const day = homeDate.format(new Date(entry.logged_at));
+    const row = days.get(day) || { calories: null, steps: null, workoutSteps: 0, hasWorkoutSteps: false };
+    if (entry.activity_type === "Apple 健康每日摘要") {
+      if (entry.calories_burned != null && Number.isFinite(Number(entry.calories_burned)))
+        row.calories = Math.max(0, Number(entry.calories_burned));
+      if (entry.steps != null && Number.isFinite(Number(entry.steps)))
+        row.steps = Math.max(0, Number(entry.steps));
+    } else if (entry.steps != null && Number.isFinite(Number(entry.steps))) {
+      row.workoutSteps += Math.max(0, Number(entry.steps));
+      row.hasWorkoutSteps = true;
+    }
+    days.set(day, row);
+  }
+  for (const row of days.values()) {
+    if (row.steps === null && row.hasWorkoutSteps) row.steps = row.workoutSteps;
+  }
+  // Health Move energy already includes exercise. Never add workout calories again.
+  return { ...(days.get(date) || { calories: null, steps: null }), days };
 }
 
-function renderHomeEnergyPlan(goal, recordedActivity) {
-  const actual = recordedActivity === undefined ? "暫時無法讀取"
-    : recordedActivity?.calories == null ? (recordedActivity?.steps != null ? "尚未同步" : "尚未記錄") : homeNumber.format(Math.round(recordedActivity.calories)) + " kcal";
+function homeActivityTarget(goal) {
+  if (!goal?.ready) return null;
+  // Estimated whole-day Move target, separate from planned extra exercise.
+  const baseline = ({ sedentary: 150, light: 200, moderate: 250, active: 300, very_active: 350 })[profile?.activity_level] ?? 150;
+  const extra = Math.max(0, Number(goal.plannedExtraActivity) || 0);
+  return Math.round((baseline + extra) / 10) * 10;
+}
+
+function renderHomeEnergyPlan(goal, recordedActivity, date) {
+  const target = homeActivityTarget(goal);
+  const rawCalories = recordedActivity?.calories;
+  const actual = rawCalories != null && Number.isFinite(Number(rawCalories)) ? Math.max(0, Number(rawCalories)) : null;
   const steps = recordedActivity === undefined ? "暫時無法讀取"
     : recordedActivity?.steps == null ? "尚未記錄" : homeNumber.format(Math.round(recordedActivity.steps)) + " 步";
-  return `<section class="card">
-    <div class="home-row"><h2>當日運動</h2><div class="home-row-actions"><button type="button" id="homeHealthRefresh" class="home-refresh" aria-label="重新讀取 Apple 健康資料">↻ 更新</button><button type="button" data-tab="activity" class="home-link">記錄運動 ›</button></div></div>
-    <div class="home-exercise-grid">
-      <div><span>計畫額外運動</span><b>${goal.ready ? homeNumber.format(goal.plannedExtraActivity) + " kcal" : "—"}</b></div>
-      <div><span>Apple 健康活動熱量</span><b>${actual}</b></div>
-      <div><span>當日步數</span><b>${steps}</b></div>
-    </div>
-    <p class="home-note" id="homeHealthStatus">活動熱量包含日常活動與運動，不等同額外運動計畫完成量。更新會重新讀取捷徑最近上傳的資料。</p>
+  const percent = actual !== null && target ? Math.round(actual / target * 100) : null;
+  const difference = actual !== null && target ? Math.round(actual - target) : null;
+  const status = difference === null ? (recordedActivity === undefined ? "活動資料暫時無法讀取" : "尚未同步活動熱量")
+    : difference > 0 ? "超過目標 " + homeNumber.format(difference) + " kcal"
+    : difference === 0 ? "剛好達成今日目標"
+    : "距離目標還差 " + homeNumber.format(-difference) + " kcal";
+  const scale = Math.max(target || 1, actual || 0, 1);
+  const normalWidth = target && actual !== null ? Math.min(actual, target) / scale * 100 : 0;
+  const extraWidth = target && actual !== null ? Math.max(0, actual - target) / scale * 100 : 0;
+  const targetPosition = target ? target / scale * 100 : 100;
+  const days = Array.from({ length: 7 }, (_, i) => shiftHomeDate(date, i - 6));
+  const history = days.map(day => ({ day, calories: recordedActivity?.days?.get(day)?.calories ?? null }));
+  const maxBar = Math.max(target || 1, ...history.map(x => x.calories || 0));
+  const bars = history.map(({ day, calories: amount }) => {
+    const known = amount != null;
+    const value = known ? Math.max(0, Number(amount)) : 0;
+    const height = known ? Math.max(value > 0 ? 4 : 2, value / maxBar * 100) : 0;
+    const hit = target && known && value >= target;
+    const weekday = ["日", "一", "二", "三", "四", "五", "六"][new Date(day + "T12:00:00Z").getUTCDay()];
+    return `<div class="msj-activity-day" title="${escapeHTML(day + "：" + (known ? Math.round(value) + " kcal" : "未同步"))}">
+      <div class="msj-activity-bar-area"><span class="msj-activity-bar ${hit ? "is-hit" : ""} ${known ? "" : "is-missing"}" style="height:${height}%"></span></div>
+      <span>${weekday}</span><small>${day.slice(8)}</small>
+    </div>`;
+  }).join("");
+  return `<section class="card msj-activity-card">
+    <div class="home-row"><h2>每日活動消耗</h2><div class="home-row-actions"><button type="button" id="homeHealthRefresh" class="home-refresh" aria-label="重新讀取 Apple 健康資料">↻ 更新</button><button type="button" data-tab="activity" class="home-link">記錄運動 ›</button></div></div>
+    <p class="msj-activity-caption">Apple 健康活動能量 · 包含日常活動與運動</p>
+    <div class="msj-activity-top"><div><span>當日已消耗</span><strong>${actual === null ? "—" : homeNumber.format(Math.round(actual))}</strong><small>kcal</small></div>
+      <div><span>每日估算目標</span><strong>${target == null ? "—" : homeNumber.format(target)}</strong><small>kcal</small></div></div>
+    <div class="msj-activity-progress-title"><strong>當日活動進度</strong><span>${percent == null ? "尚無資料" : percent + "%"}</span></div>
+    <div class="msj-activity-track" role="img" aria-label="${escapeHTML(status)}"><span class="msj-activity-fill" style="width:${normalWidth}%"></span><span class="msj-activity-over" style="left:${normalWidth}%;width:${extraWidth}%"></span>${target ? `<i style="left:${targetPosition}%"></i>` : ""}</div>
+    <div class="msj-activity-progress-foot"><span>0 kcal</span><span>目標 ${target == null ? "—" : homeNumber.format(target)} kcal</span></div>
+    <p class="msj-activity-status ${difference !== null && difference >= 0 ? "is-hit" : ""}">${status}</p>
+    <div class="msj-activity-chart-title"><strong>最近 7 天</strong><small>每日活動能量 (kcal)</small></div>
+    <div class="msj-activity-chart"><div class="msj-activity-goal-line" style="bottom:calc(27px + (100% - 27px) * ${target ? target / maxBar : 0})"></div>${bars}</div>
+    <div class="msj-activity-legend"><span><i class="is-hit"></i>達標</span><span><i></i>未達標</span><span>虛線：每日目標</span></div>
+    <div class="msj-activity-steps"><span>當日步數</span><strong>${steps}</strong></div>
+    <p class="home-note" id="homeHealthStatus">活動目標依活動程度及減重階段估算，與額外運動目標不同；不會把消耗熱量自動加回飲食額度。未同步日期不視為 0 kcal。更新會重新讀取已上傳的資料。</p>
   </section>`;
 }
 
@@ -733,7 +782,7 @@ function renderHome(meals, weights, date, weightTrend, recordedActivity) {
   }).join("");
   return `${homeStyles}<main class="home-dashboard">
     ${renderHomeNutrition(goal, meals ? totals : null, date)}
-    ${renderHomeEnergyPlan(goal, recordedActivity)}
+    ${renderHomeEnergyPlan(goal, recordedActivity, date)}
     ${renderHomeWeight(stage, current, Number(profile?.start_weight_kg))}
     ${renderHomeTrend(weights, date)}
     <section class="card">

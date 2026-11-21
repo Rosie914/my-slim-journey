@@ -1,0 +1,32 @@
+/* My Slim Journey · daily activity energy */
+.msj-activity-card{overflow:hidden}
+.msj-activity-caption{font-size:12px;color:#98848e;margin:5px 0 17px}
+.msj-activity-top{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px}
+.msj-activity-top>div{background:linear-gradient(145deg,#fbf5f8,#f5f0fa);border:1px solid #f2e7ef;border-radius:17px;padding:15px 12px;min-width:0}
+.msj-activity-top span{display:block;font-size:12px;color:#8c7985;margin-bottom:6px}
+.msj-activity-top strong{font-size:clamp(23px,6vw,29px);letter-spacing:-1px;color:#6e536b;font-variant-numeric:tabular-nums}
+.msj-activity-top small{font-size:12px;color:#9b8796;margin-left:4px}
+.msj-activity-progress-title,.msj-activity-progress-foot,.msj-activity-chart-title,.msj-activity-steps{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.msj-activity-progress-title{font-size:14px;margin-bottom:9px}.msj-activity-progress-title span{color:#9776ad;font-weight:700}
+.msj-activity-track{height:14px;background:#f0e8ef;border-radius:99px;position:relative;overflow:hidden}
+.msj-activity-fill,.msj-activity-over{position:absolute;top:0;height:100%;left:0;border-radius:99px;background:#c5a5d8}
+.msj-activity-over{background:#8e6bab;border-radius:0 99px 99px 0}
+.msj-activity-track i{position:absolute;top:0;height:100%;width:2px;background:#795b81;transform:translateX(-2px)}
+.msj-activity-progress-foot{font-size:11px;color:#a08e9b;margin-top:6px}
+.msj-activity-status{background:#f9f4fa;border-radius:12px;padding:11px 13px;color:#806a87;font-weight:650;font-size:13px;margin:13px 0 22px}
+.msj-activity-status.is-hit{background:#f0f6f0;color:#587e65}
+.msj-activity-chart-title{font-size:14px;margin-bottom:12px}.msj-activity-chart-title small{font-size:11px;color:#a18d9b}
+.msj-activity-chart{height:154px;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:9px;position:relative;padding:0 3px}
+.msj-activity-goal-line{position:absolute;left:0;right:0;border-top:1.5px dashed #b18dbb;pointer-events:none;z-index:1}
+.msj-activity-day{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;color:#988a95;min-width:0;position:relative;z-index:2}
+.msj-activity-day small{font-size:10px;color:#b3a3ae}
+.msj-activity-bar-area{height:127px;width:100%;display:flex;align-items:flex-end;justify-content:center}
+.msj-activity-bar{display:block;width:min(28px,80%);background:#e1cfe9;border-radius:8px 8px 3px 3px;min-height:0}
+.msj-activity-bar.is-hit{background:linear-gradient(180deg,#aa83c6,#c4a4d8)}
+.msj-activity-bar.is-missing{background:transparent}
+.msj-activity-legend{display:flex;gap:12px;flex-wrap:wrap;color:#9b8b98;font-size:10px;margin:10px 0 17px}
+.msj-activity-legend span{display:inline-flex;align-items:center;gap:4px}
+.msj-activity-legend i{display:inline-block;width:9px;height:9px;border-radius:3px;background:#e1cfe9}
+.msj-activity-legend i.is-hit{background:#aa83c6}
+.msj-activity-steps{border-top:1px solid #f0e7ef;padding-top:13px;font-size:13px;color:#887b83}.msj-activity-steps strong{color:#6e536b}
+@media(max-width:360px){.msj-activity-top>div{padding:12px 9px}.msj-activity-chart{gap:5px}}
