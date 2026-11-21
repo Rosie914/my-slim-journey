@@ -51,6 +51,8 @@
 .an-activity-actions :is(.an-delete-activity,.an-delete-weight) { color: #8a4f63; background: #f7ecef; }
 .an-weight-summary { position: relative; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-top: 18px; padding: 18px; border-radius: 18px; background: linear-gradient(145deg,#f8f1f5,#fbf8f7); }
 .an-weight-value { min-width: 0; }
+.an-weight-summary { flex-wrap: wrap; }
+.an-fat-summary { flex:1 0 100%; margin:0; padding-top:12px; border-top:1px solid #e5dbe1; font-size:14px; }
 .an-weight-value > span { color: #8c7973; font-size: 12px; }
 .an-weight-value strong { display: block; margin: 3px 0 5px; color: #514744; font-size: clamp(35px,10vw,48px); line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -.04em; }
 .an-weight-value strong small { margin-left: 6px; font-size: 16px; letter-spacing: 0; }

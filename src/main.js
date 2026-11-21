@@ -1023,7 +1023,7 @@ async function showApp() {
   const analyticsTasks = {
     activity: () => initAnalytics(supabase, analyticsUser, analyticsTab),
     weight: async () => {
-      await initAnalytics(supabase, analyticsUser, analyticsTab);
+      await initAnalytics(supabase, analyticsUser, analyticsTab, profile);
       if (currentTab === analyticsTab) await renderWeightInsights(supabase, analyticsUser, nutritionProfile);
     },
     reports: () => renderReportInsights(supabase, analyticsUser, nutritionProfile, latestWeight),
