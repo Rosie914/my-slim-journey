@@ -11,6 +11,8 @@ import { renderMealSuite, initMealSuite } from "./meal-suite.js";
 import "./meal-suite.css";
 import "./style.css";
 import "./home-activity.css";
+import "./trend-charts.css";
+import { trendLineChart, goalProgress, mountWeightTrends } from "./trend-charts.js";
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -529,6 +531,13 @@ async function loadHomeWeights(userId, date) {
   return weights;
 }
 
+async function loadHomeBodyFat(userId,date){
+  const from=new Date(shiftHomeDate(date,-6)+'T00:00:00+08:00').toISOString();
+  const to=new Date(shiftHomeDate(date,1)+'T00:00:00+08:00').toISOString();
+  const {data,error}=await supabase.from('weight_logs').select('body_fat_pct,logged_at').eq('user_id',userId).gte('logged_at',from).lt('logged_at',to).not('body_fat_pct','is',null).order('logged_at',{ascending:false});
+  if(error)throw error;const map=new Map();for(const row of data||[]){const day=homeDate.format(new Date(row.logged_at));if(!map.has(day)&&Number(row.body_fat_pct)>0)map.set(day,Number(row.body_fat_pct));}return map;
+}
+
 async function loadHomeActivityCalories(userId, date) {
   const from = new Date(shiftHomeDate(date, -6) + "T00:00:00+08:00").toISOString();
   const to = new Date(shiftHomeDate(date, 1) + "T00:00:00+08:00").toISOString();
@@ -591,18 +600,7 @@ function renderHomeEnergyPlan(goal, recordedActivity, date) {
   const targetPosition = target ? target / scale * 100 : 100;
   const days = Array.from({ length: 7 }, (_, i) => shiftHomeDate(date, i - 6));
   const history = days.map(day => ({ day, calories: recordedActivity?.days?.get(day)?.calories ?? null }));
-  const maxBar = Math.max(target || 1, ...history.map(x => x.calories || 0));
-  const bars = history.map(({ day, calories: amount }) => {
-    const known = amount != null;
-    const value = known ? Math.max(0, Number(amount)) : 0;
-    const height = known ? Math.max(value > 0 ? 4 : 2, value / maxBar * 100) : 0;
-    const hit = target && known && value >= target;
-    const weekday = ["日", "一", "二", "三", "四", "五", "六"][new Date(day + "T12:00:00Z").getUTCDay()];
-    return `<div class="msj-activity-day" title="${escapeHTML(day + "：" + (known ? Math.round(value) + " kcal" : "未同步"))}">
-      <div class="msj-activity-bar-area"><span class="msj-activity-bar ${hit ? "is-hit" : ""} ${known ? "" : "is-missing"}" style="height:${height}%"></span></div>
-      <span>${weekday}</span><small>${day.slice(8)}</small>
-    </div>`;
-  }).join("");
+  const activityLine = trendLineChart(history.map(item => ({date:item.day,value:item.calories})), {unit:'kcal',target,label:'每日活動消耗',color:'#a78ac5'});
   return `<section class="card msj-activity-card">
     <div class="home-row"><h2>每日活動消耗</h2><div class="home-row-actions"><button type="button" id="homeHealthRefresh" class="home-refresh" aria-label="重新讀取 Apple 健康資料">↻ 更新</button><button type="button" data-tab="activity" class="home-link">記錄運動 ›</button></div></div>
     <p class="msj-activity-caption">Apple 健康活動能量 · 包含日常活動與運動</p>
@@ -613,8 +611,8 @@ function renderHomeEnergyPlan(goal, recordedActivity, date) {
     <div class="msj-activity-progress-foot"><span>0 kcal</span><span>目標 ${target == null ? "—" : homeNumber.format(target)} kcal</span></div>
     <p class="msj-activity-status ${difference !== null && difference >= 0 ? "is-hit" : ""}">${status}</p>
     <div class="msj-activity-chart-title"><strong>最近 7 天</strong><small>每日活動能量 (kcal)</small></div>
-    <div class="msj-activity-chart"><div class="msj-activity-goal-line" style="bottom:calc(27px + (100% - 27px) * ${target ? target / maxBar : 0})"></div>${bars}</div>
-    <div class="msj-activity-legend"><span><i class="is-hit"></i>達標</span><span><i></i>未達標</span><span>虛線：每日目標</span></div>
+    ${activityLine}
+    <p class="msj-trend-foot">圓點可查看日期與數值 · 虛線為每日目標 · 缺少資料不補零</p>
     <div class="msj-activity-steps"><span>當日步數</span><strong>${steps}</strong></div>
     <p class="home-note" id="homeHealthStatus">活動目標依活動程度及減重階段估算，與額外運動目標不同；不會把消耗熱量自動加回飲食額度。未同步日期不視為 0 kcal。更新會重新讀取已上傳的資料。</p>
   </section>`;
@@ -723,27 +721,24 @@ function renderHomeWeight(stage, current, start) {
 
 function renderHomeTrend(weights, date) {
   const days = Array.from({ length: 7 }, (_, i) => shiftHomeDate(date, i - 6));
-  let trend = '<p class="home-note">體重紀錄暫時無法載入。</p>';
-  if (weights?.size === 0) trend = '<p class="home-note">最近 7 天還沒有體重紀錄。</p>';
-  if (weights?.size > 0) {
-    const values = [...weights.values()];
-    const baseline = Math.floor(Math.min(...values)) - 0.5;
-    const ceiling = Math.ceil(Math.max(...values));
-    trend = `<p class="home-note">每日最新紀錄 · 刻度從 ${baseline} kg 起</p><div class="home-trend">
-      ${days.map(day => {
-        const value = weights.get(day);
-        const height = value == null ? 0 : Math.round((value - baseline) / (ceiling - baseline) * 100);
-        return `<div class="home-day" aria-label="${day}，${value == null ? "未記錄" : value.toFixed(1) + " kg"}">
-          <b>${value == null ? "–" : value.toFixed(1)}</b>
-          <div class="home-column"><span style="height:${height}%"></span></div>
-          <small>${day.slice(5).replace("-", "/")}</small>
-        </div>`;
-      }).join("")}</div>`;
-  }
-  return `<section class="card"><h2>最近 7 天體重</h2>${trend}</section>`;
+  const points = days.map(day => ({date:day,value:weights?.get(day) ?? null}));
+  return `<section class="card"><h2>最近 7 天體重</h2>${weights === null ? '<p class="home-note">體重紀錄暫時無法載入。</p>' : trendLineChart(points,{unit:'kg',label:'最近七天體重',color:'#a795c6'})}</section>`;
 }
 
-function renderHome(meals, weights, date, weightTrend, recordedActivity) {
+function renderHomeBodyFat(fats, date) {
+  const days = Array.from({ length: 7 }, (_, i) => shiftHomeDate(date, i - 6));
+  const points = days.map(day => ({date:day,value:fats?.get(day) ?? null}));
+  const current = [...(fats?.values() || [])][0] ?? null;
+  const target = profile?.target_body_fat_pct == null ? null : Number(profile.target_body_fat_pct);
+  const earliest = [...(fats?.values() || [])].at(-1) ?? null;
+  return `<section class="card msj-home-fat"><div class="msj-home-fat-head"><h2>體脂進度</h2><button type="button" data-tab="weight" class="home-link">查看趨勢 ›</button></div>
+    <div class="msj-home-fat-stats"><div><span>最近體脂</span><strong>${current == null ? '—' : current.toFixed(1)+'%'}</strong></div><div><span>目標體脂</span><strong>${target == null ? '未設定' : target.toFixed(1)+'%'}</strong></div></div>
+    ${goalProgress(earliest,current,target,'個百分點')}
+    <p class="msj-home-chart-title">最近 7 天體脂變化</p>${fats === null ? '<p class="home-note">體脂紀錄暫時無法載入。</p>' : trendLineChart(points,{unit:'%',label:'最近七天體脂',color:'#d5a2b8',target})}
+    <p class="msj-trend-foot">體脂計讀數容易受水分影響，建議觀察長期趨勢。</p></section>`;
+}
+
+function renderHome(meals, weights, date, weightTrend, recordedActivity, fats) {
   const weightAsOfDate = latestWeight?.logged_at && homeDate.format(new Date(latestWeight.logged_at)) <= date ? latestWeight.weight_kg : weights?.values().next().value;
   const current = Number(weightAsOfDate) || Number(profile?.start_weight_kg) || null;
   const goal = calculateNutrition({ ...profile, _stages: stages, _weightTrend: weightTrend }, current, date);
@@ -785,6 +780,7 @@ function renderHome(meals, weights, date, weightTrend, recordedActivity) {
     ${renderHomeEnergyPlan(goal, recordedActivity, date)}
     ${renderHomeWeight(stage, current, Number(profile?.start_weight_kg))}
     ${renderHomeTrend(weights, date)}
+    ${renderHomeBodyFat(fats, date)}
     <section class="card">
       <div class="home-row"><h2>當日餐點</h2><button type="button" data-tab="meals" class="home-link">記錄飲食 ›</button></div>
       ${mealRows ? `<ul class="home-meals">${mealRows}</ul>` : `<p class="home-note">${meals ? "當天還沒有飲食紀錄。" : "餐點暫時無法載入。"}</p>`}
@@ -922,14 +918,15 @@ async function showApp() {
 
     if (currentTab === "home") {
       const date = overviewDate ?? homeDate.format(new Date());
-      const [meals, weights, trend, activity] = await Promise.allSettled([
+      const [meals, weights, trend, activity, fats] = await Promise.allSettled([
         loadHomeMeals(currentUser.id, date),
         loadHomeWeights(currentUser.id, date),
         loadNutritionTrend(supabase, currentUser.id, date),
-        loadHomeActivityCalories(currentUser.id, date)
+        loadHomeActivityCalories(currentUser.id, date),
+        loadHomeBodyFat(currentUser.id, date)
       ]);
       if (generation !== appRenderGeneration || currentUser?.id !== renderUserId) return;
-      content = renderHome(meals.value ?? null, weights.value ?? null, date, trend.value, activity.value);
+      content = renderHome(meals.value ?? null, weights.value ?? null, date, trend.value, activity.value, fats.status === 'fulfilled' ? fats.value : null);
     }
 
     if (currentTab === "meals") {
@@ -1073,6 +1070,7 @@ async function showApp() {
     activity: () => initAnalytics(supabase, analyticsUser, analyticsTab),
     weight: async () => {
       await initAnalytics(supabase, analyticsUser, analyticsTab, profile);
+      await mountWeightTrends(supabase, analyticsUser, profile);
       if (currentTab === analyticsTab) await renderWeightInsights(supabase, analyticsUser, nutritionProfile);
     },
     reports: () => renderReportInsights(supabase, analyticsUser, nutritionProfile, latestWeight),
