@@ -657,7 +657,7 @@ export function initMealSuite(db, uid, config = {}) {
         if (!foods.length) { results.textContent = "查無結果，可改用其他名稱、條碼，或切換搜尋範圍。"; return; }
         const label = food => kind === "brand" ? [food.brand, food.name].filter(Boolean).join(" · ") : food.description;
         results.innerHTML = `<label>搜尋結果<select data-food>${foods.map((food, i) => `<option value="${i}">${esc(label(food))}</option>`).join("")}</select></label>
-          <p data-food-detail class="diary-note"></p>
+          <p data-food-detail class="diary-note"></p><a data-product-link class="diary-link" target="_blank" rel="noopener noreferrer" hidden>查看商品原始資料</a>
           <form><label>食用量（<span data-unit>g</span>，分裝時填整鍋用量）<input name="grams" type="number" value="100" min="0.1" step="any" required></label><button>加入這一餐</button></form>
           ${kind === "brand" ? '<p class="diary-note">商品資料由 <a href="https://world.openfoodfacts.org/" target="_blank" rel="noopener noreferrer">Open Food Facts</a> 提供（ODbL）。數值可能由社群提供，加入前請對照包裝標示。</p>' : '<p class="diary-note">一般食材資料：USDA FoodData Central。請留意熟重、生重及品種差異。</p>'}`;
         const select = results.querySelector("[data-food]");
@@ -668,7 +668,11 @@ export function initMealSuite(db, uid, config = {}) {
           results.querySelector("[data-unit]").textContent = unit;
           quantity.value = kind === "brand" && food.servingAmount > 0 ? food.servingAmount : 100;
           const sample = kind === "brand" ? brandedPortion(food, 100) : catalogPortion(food, 100);
-          results.querySelector("[data-food-detail]").textContent = `每 100 ${unit}：熱量 ${sample.calories ?? "未標示"} kcal · 蛋白質 ${sample.protein_g ?? "未標示"} g${kind === "brand" ? ` · 條碼 ${food.code || "未提供"}` : ""}`;
+          const serving = kind === "brand" && food.servingAmount > 0 ? brandedPortion(food, food.servingAmount) : null;
+          results.querySelector("[data-food-detail]").textContent = `每 100 ${unit}：熱量 ${sample.calories ?? "未標示"} kcal · 蛋白質 ${sample.protein_g ?? "未標示"} g${serving ? ` · 每份 ${food.servingAmount} ${unit}：${serving.calories ?? "未標示"} kcal` : ""}${kind === "brand" ? ` · 條碼 ${food.code || "未提供"}` : ""}`;
+          const productLink = results.querySelector("[data-product-link]");
+          productLink.hidden = kind !== "brand" || !/^\d{8,14}$/.test(food.code || "");
+          if (!productLink.hidden) productLink.href = `https://world.openfoodfacts.org/product/${food.code}`;
         };
         select.onchange = showDetail;
         showDetail();
