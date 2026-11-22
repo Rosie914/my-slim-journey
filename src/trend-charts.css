@@ -29,3 +29,8 @@
 .msj-home-fat-stats span{font-size:12px}
 .msj-trends-panel .msj-trend-section+.msj-trend-section{border-top:1px solid #f0e9ef;padding-top:18px}
 @media(max-width:380px){.msj-trend-heading{align-items:flex-start;flex-direction:column}.msj-home-fat-stats strong{font-size:21px}}
+
+/* iPhone: 32px transparent hit areas, without enlarging the visual dots. */
+.msj-trend-graph .msj-chart-point [data-chart-point]{touch-action:manipulation}
+.msj-trend-graph .msj-chart-point:has([aria-pressed="true"]) circle:first-child{fill:#f4ebfa;stroke-width:3.8}
+.msj-trend-graph .msj-chart-point:has([data-chart-point]:focus-visible) circle:first-child{stroke-width:4;stroke:#745b95}

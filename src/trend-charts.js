@@ -24,7 +24,7 @@ export function trendLineChart(points, {unit = '', target = null, color = '#b58b
     <text x="${L-5}" y="${T+3}" text-anchor="end" class="msj-chart-axis">${fmt(max)}</text><text x="${L-5}" y="${bottom}" text-anchor="end" class="msj-chart-axis">${fmt(min)}</text>
     ${targetLine}
     ${lines.map(a=>a.length>1?`<polyline points="${a.join(' ')}" fill="none" stroke="${color}" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>`:'').join('')}
-    ${clean.map((p,i)=>p.value===null?'':`<circle cx="${x(i)}" cy="${y(p.value)}" r="5" fill="white" stroke="${color}" stroke-width="2.3" tabindex="0" role="button" aria-pressed="false" aria-label="${safe(p.date)}：${fmt(p.value)} ${safe(unit)}" data-chart-point="${safe(p.date)}：${fmt(p.value)} ${safe(unit)}"><title>${safe(p.date)}：${fmt(p.value)} ${safe(unit)}</title></circle>`).join('')}
+    ${clean.map((p,i)=>p.value===null?'':`<g class="msj-chart-point"><circle cx="${x(i)}" cy="${y(p.value)}" r="5" fill="white" stroke="${color}" stroke-width="2.3" aria-hidden="true" pointer-events="none"/><circle cx="${x(i)}" cy="${y(p.value)}" r="16" fill="transparent" stroke="transparent" tabindex="0" role="button" aria-pressed="false" aria-label="${safe(p.date)}：${fmt(p.value)} ${safe(unit)}" data-chart-point="${safe(p.date)}：${fmt(p.value)} ${safe(unit)}"><title>${safe(p.date)}：${fmt(p.value)} ${safe(unit)}</title></circle></g>`).join('')}
     <text x="${L}" y="${height-5}" class="msj-chart-axis">${safe(clean[0].date.slice(5).replace('-','/'))}</text><text x="${W-R}" y="${height-5}" text-anchor="end" class="msj-chart-axis">${safe(clean.at(-1).date.slice(5).replace('-','/'))}</text>
   </svg><p class="msj-trend-selected" aria-live="polite">點選圖表圓點，查看日期與數值</p></div>`;
 }

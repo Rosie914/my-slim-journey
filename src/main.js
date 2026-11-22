@@ -1,3 +1,4 @@
+import "./activity-compact.css";
 
 import { renderAnalytics, initAnalytics } from "./analytics.js";
 import { renderWeightInsights, renderReportInsights } from "./insights.js";
@@ -9,6 +10,8 @@ import { createClient } from "@supabase/supabase-js";
 import { calculateNutrition, renderNutritionBasis } from "./nutrition.js";
 import { renderMealSuite, initMealSuite } from "./meal-suite.js";
 import "./meal-suite.css";
+import "./diary-quick-actions.css";
+import { mountDiaryQuickActions } from "./diary-quick-actions.js";
 import "./style.css";
 import "./ui-phase2.css";
 import "./ui-phase3.css";
@@ -561,6 +564,18 @@ async function loadHomeWeights(userId, date) {
   return weights;
 }
 
+// Historical overview must never display a measurement recorded after the selected date.
+async function loadWeightAsOfDate(userId, date) {
+  const end = new Date(shiftHomeDate(date, 1) + "T00:00:00+08:00").toISOString();
+  const { data, error } = await supabase.from("weight_logs")
+    .select("weight_kg,logged_at").eq("user_id", userId)
+    .lt("logged_at", end).not("weight_kg", "is", null)
+    .order("logged_at", { ascending: false }).limit(1);
+  if (error) throw error;
+  const value = Number(data?.[0]?.weight_kg);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
 async function loadHomeBodyFat(userId,date){
   const from=new Date(shiftHomeDate(date,-6)+'T00:00:00+08:00').toISOString();
   const to=new Date(shiftHomeDate(date,1)+'T00:00:00+08:00').toISOString();
@@ -635,43 +650,37 @@ function homeActivityTarget(goal) {
 }
 
 function renderHomeEnergyPlan(goal, recordedActivity, date) {
-  const today = homeDate.format(new Date());
-  const isToday = date === today;
-  const dayLabel = isToday ? "今日" : date.replaceAll("-", "/");
-  const target = homeActivityTarget(goal);
-  const rawCalories = recordedActivity?.calories;
-  const actual = rawCalories != null && Number.isFinite(Number(rawCalories)) ? Math.max(0, Number(rawCalories)) : null;
-  const sourceLabel = recordedActivity?.source === "health" ? "Apple 健康全天活動能量" : recordedActivity?.source === "workout" ? "已記錄運動消耗（未含日常活動）" : "尚無活動熱量紀錄";
-  const steps = recordedActivity === undefined ? "暫時無法讀取"
-    : recordedActivity?.steps == null ? "尚未記錄" : homeNumber.format(Math.round(recordedActivity.steps)) + " 步";
-  const percent = actual !== null && target ? Math.round(actual / target * 100) : null;
-  const difference = actual !== null && target ? Math.round(actual - target) : null;
-  const status = difference === null ? (recordedActivity === undefined ? "活動資料暫時無法讀取" : `「${dayLabel}」尚無活動熱量或運動消耗紀錄`)
-    : difference > 0 ? "超過目標 " + homeNumber.format(difference) + " kcal"
-    : difference === 0 ? "剛好達成當日目標"
-    : "距離目標還差 " + homeNumber.format(-difference) + " kcal";
-  const scale = Math.max(target || 1, actual || 0, 1);
-  const normalWidth = target && actual !== null ? Math.min(actual, target) / scale * 100 : 0;
-  const extraWidth = target && actual !== null ? Math.max(0, actual - target) / scale * 100 : 0;
-  const targetPosition = target ? target / scale * 100 : 100;
+  const isToday = date === homeDate.format(new Date());
+  const dayLabel = isToday ? "今日" : date.slice(5).replace("-", "/");
+  const isHealth = recordedActivity?.source === "health";
+  const raw = recordedActivity?.calories;
+  const actual = raw != null && Number.isFinite(Number(raw)) ? Math.max(0, Number(raw)) : null;
+  // An exercise-only reference must not reuse the whole-day Move energy target.
+  // This is an optional gentle guide, not a required calorie burn or food allowance.
+  const target = isHealth ? homeActivityTarget(goal) : 150;
+  const steps = recordedActivity === undefined ? "暫時無法讀取" :
+    recordedActivity?.steps == null ? "尚未同步" : homeNumber.format(Math.round(recordedActivity.steps)) + " 步";
+  const percent = actual != null && target ? Math.round(actual / target * 100) : null;
+  const progress = actual != null && target ? Math.min(100, actual / target * 100) : 0;
   const days = Array.from({ length: 7 }, (_, i) => shiftHomeDate(date, i - 6));
   const history = days.map(day => ({ day, calories: recordedActivity?.days?.get(day)?.calories ?? null }));
-  const usingWorkouts = recordedActivity?.source === "workout";
-  const activityLine = trendLineChart(history.map(item => ({date:item.day,value:item.calories})), {unit:'kcal',target,label:'每日活動消耗',color:'#a78ac5'});
-  return `<section class="card msj-activity-card">
-    <div class="home-row"><h2>每日活動消耗</h2><div class="home-row-actions"><button type="button" id="homeHealthShortcut" class="home-shortcut" aria-label="執行 Apple Health Sync 捷徑">同步健康</button><button type="button" id="homeHealthRefresh" class="home-refresh" aria-label="重新讀取 Apple 健康資料">↻ 更新</button><button type="button" data-tab="activity" class="home-link">記錄運動 ›</button></div></div>
-    <p class="msj-activity-caption"><strong class="msj-activity-date">${dayLabel}活動紀錄</strong> · ${sourceLabel}</p>
-    <div class="msj-activity-top"><div><span>${usingWorkouts ? "已記錄運動消耗" : (isToday ? "今日已消耗" : "選定日期消耗")}</span><strong>${actual === null ? "—" : homeNumber.format(Math.round(actual))}</strong><small>kcal</small></div>
-      <div><span>每日估算目標</span><strong>${target == null ? "—" : homeNumber.format(target)}</strong><small>kcal</small></div></div>
-    <div class="msj-activity-progress-title"><strong>${usingWorkouts ? "已記錄運動／活動目標參考" : "當日活動進度"}</strong><span>${percent == null ? "尚無資料" : percent + "%"}</span></div>
-    <div class="msj-activity-track" role="img" aria-label="${escapeHTML(status)}"><span class="msj-activity-fill" style="width:${normalWidth}%"></span><span class="msj-activity-over" style="left:${normalWidth}%;width:${extraWidth}%"></span>${target ? `<i style="left:${targetPosition}%"></i>` : ""}</div>
-    <div class="msj-activity-progress-foot"><span>0 kcal</span><span>目標 ${target == null ? "—" : homeNumber.format(target)} kcal</span></div>
-    <p class="msj-activity-status ${difference !== null && difference >= 0 ? "is-hit" : ""}">${status}</p>
-    <div class="msj-activity-chart-title"><strong>截至 ${dayLabel} 的 7 天</strong><small>有全天活動能量時優先顯示，否則使用運動消耗 (kcal)</small></div>
-    ${activityLine}
-    <p class="msj-trend-foot">圓點可查看日期與數值 · 虛線為每日目標 · 缺少資料不補零</p>
-    <div class="msj-activity-steps"><span>${isToday ? "今日步數" : "選定日期步數"}</span><strong>${steps}</strong></div>
-    <p class="home-note" id="homeHealthStatus">活動目標依活動程度及減重階段估算。尚未同步 Apple 健康全天活動熱量時，暫以已記錄運動消耗顯示，未包含日常活動；兩者不相加，避免重複計算，也不會把消耗熱量自動加回飲食額度。未記錄日期不視為 0 kcal。目前查看 ${date.replaceAll("-", "/")}；切換上方日期會同步更新此卡數值、步數與七日折線圖。「同步健康」會開啟 iPhone 的 Apple Health Sync 捷徑；返回 App 後會重新讀取。單按「更新」只讀取已上傳的資料。</p>
+  const chart = trendLineChart(history.map(item => ({date:item.day,value:item.calories})),
+    {unit:'kcal',target,label:'運動與活動消耗',color:'#a78ac5'});
+  const sourceText = isHealth ? "Apple 健康 · 全天活動熱量" : "運動紀錄 · 不含日常活動";
+  return `<section class="card msj-activity-card msj-activity-compact">
+    <div class="msj-activity-heading">
+      <div><h2>每日活動</h2><p>${dayLabel} · ${sourceText}</p></div>
+      <div class="msj-activity-actions"><button type="button" id="homeHealthShortcut" class="home-shortcut" aria-label="執行 Apple Health Sync 捷徑">同步健康</button><button type="button" id="homeHealthRefresh" class="home-refresh" aria-label="重新讀取已同步資料">↻ 更新</button></div>
+    </div>
+    <div class="msj-activity-step-tile"><div><small>${isToday ? "今日步數" : "當日步數"}</small><strong>${steps}</strong></div><span>Apple 健康</span></div>
+    <div class="msj-activity-progress-title"><strong>${isHealth ? "全天活動熱量" : "已記錄運動消耗"}</strong><span>${percent === null ? "尚無紀錄" : percent + "%"}</span></div>
+    <div class="msj-activity-track" role="progressbar" aria-label="${isHealth ? "全天活動" : "已記錄運動"}消耗進度" aria-valuemin="0" aria-valuemax="${target}" aria-valuenow="${actual == null ? 0 : Math.min(actual,target)}"><span class="msj-activity-fill" style="width:${progress}%"></span></div>
+    <div class="msj-activity-progress-foot"><span>${actual === null ? "尚無消耗紀錄" : homeNumber.format(Math.round(actual)) + " kcal 已記錄"}</span><span>參考 ${homeNumber.format(target)} kcal</span></div>
+    <p class="msj-activity-hint">${isHealth ? "全天活動熱量包含運動，請勿與運動消耗相加。" : "150 kcal 為溫和運動參考，不必每天達標；減脂仍以合理的全天熱量赤字為主。"}</p>
+    <div class="msj-activity-chart-title"><strong>近 7 天趨勢</strong><small>截至 ${dayLabel} · 缺少資料不補零</small></div>
+    ${chart}
+    <div class="msj-activity-footer"><button type="button" data-tab="activity" class="home-link">查看運動紀錄 ›</button><span>全日活動熱量：${isHealth ? "已同步" : "待設定捷徑"}</span></div>
+    <p class="home-note msj-activity-help" id="homeHealthStatus">同步健康會啟動 iPhone 捷徑；更新只重新讀取已上傳資料。運動消耗不會自動加回可吃熱量。</p>
   </section>`;
 }
 
@@ -799,9 +808,8 @@ function renderHomeBodyFat(fats, date, fatBaseline) {
     <p class="msj-trend-foot">體脂計讀數容易受水分影響，建議觀察長期趨勢。</p></section>`;
 }
 
-function renderHome(meals, weights, date, weightTrend, recordedActivity, fats, fatBaseline) {
-  const weightAsOfDate = latestWeight?.logged_at && homeDate.format(new Date(latestWeight.logged_at)) <= date ? latestWeight.weight_kg : weights?.values().next().value;
-  const current = Number(weightAsOfDate) || Number(profile?.start_weight_kg) || null;
+function renderHome(meals, weights, date, weightTrend, recordedActivity, fats, fatBaseline, weightAsOfDate) {
+  const current = weightAsOfDate == null ? null : Number(weightAsOfDate);
   const goal = calculateNutrition({ ...profile, _stages: stages, _weightTrend: weightTrend }, current, date);
   const stage = [...stages]
     .filter(entry => entry.target_date >= date && Number(entry.target_weight_kg) > 0)
@@ -991,16 +999,17 @@ async function showApp() {
 
     if (currentTab === "home") {
       const date = overviewDate ?? homeDate.format(new Date());
-      const [meals, weights, trend, activity, fats, fatBaseline] = await Promise.allSettled([
+      const [meals, weights, trend, activity, fats, fatBaseline, asOfWeight] = await Promise.allSettled([
         loadHomeMeals(currentUser.id, date),
         loadHomeWeights(currentUser.id, date),
         loadNutritionTrend(supabase, currentUser.id, date),
         loadHomeActivityCalories(currentUser.id, date),
         loadHomeBodyFat(currentUser.id, date),
-        loadHomeFatBaseline(currentUser.id, date)
+        loadHomeFatBaseline(currentUser.id, date),
+        loadWeightAsOfDate(currentUser.id, date)
       ]);
       if (generation !== appRenderGeneration || currentUser?.id !== renderUserId) return;
-      content = renderHome(meals.value ?? null, weights.value ?? null, date, trend.value, activity.value, fats.status === 'fulfilled' ? fats.value : null, fatBaseline.status === 'fulfilled' ? fatBaseline.value : undefined);
+      content = renderHome(meals.value ?? null, weights.value ?? null, date, trend.value, activity.value, fats.status === 'fulfilled' ? fats.value : null, fatBaseline.status === 'fulfilled' ? fatBaseline.value : undefined, asOfWeight.status === 'fulfilled' ? asOfWeight.value : null);
     }
 
     if (currentTab === "meals") {
@@ -1114,7 +1123,7 @@ async function showApp() {
     });
     let start = null;
     overview.addEventListener("touchstart", event => {
-      start = event.touches.length === 1 && !event.target.closest("button,input,summary,a")
+      start = event.touches.length === 1 && !event.target.closest("button,input,summary,a,.msj-trend-graph")
         ? event.touches[0] : null;
     }, { passive: true });
     overview.addEventListener("touchcancel", () => { start = null; });
@@ -1573,6 +1582,7 @@ async function showApp() {
       onDateChange: date => { diarySelection = date; },
       goal
     });
+    mountDiaryQuickActions();
   }
 
 }
