@@ -1,0 +1,41 @@
+.msj-smart-meal{padding:16px;margin:13px 0 20px;border:1px solid #eadde5;border-radius:20px;background:linear-gradient(130deg,#fffdfa,#faf4f8)}
+.msj-smart-top{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px}
+.msj-smart-top>div{display:grid;gap:3px}.msj-smart-top strong{color:#5c4656;font-size:17px}.msj-smart-top small{color:#877781;font-size:12px}.msj-smart-top>span{font-size:21px;color:#ad80ae}
+.msj-smart-meal form{margin:0}.msj-smart-entry-label{display:block;font-size:13px;font-weight:650;color:#695a62;margin-bottom:6px}
+.msj-smart-meal textarea,.msj-smart-meal input,.msj-smart-meal select{box-sizing:border-box;max-width:100%;font-family:inherit;font-size:16px}
+.msj-smart-meal textarea{width:100%;padding:13px 14px;min-height:84px;resize:vertical;border:1px solid #e8dae0;border-radius:14px;background:white;color:#493d44}
+.msj-smart-meal textarea:focus-visible,.msj-smart-meal input:focus-visible,.msj-smart-meal select:focus-visible{outline:2px solid #a28aad;outline-offset:2px}
+.msj-smart-formtools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:9px}
+.msj-smart-formtools #msjSmartPhoto{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden}
+.msj-smart-photo{padding:10px 12px;background:#f4eef1;border-radius:12px;color:#675064;font-size:13px;font-weight:700;min-height:42px;display:inline-flex;align-items:center;cursor:pointer}
+.msj-smart-filename{flex:1;min-width:75px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#877781;font-size:11px}
+.msj-smart-formtools button{background:#675166;color:white;border:0;border-radius:12px;padding:10px 14px;font-weight:700;min-height:43px;cursor:pointer}
+.msj-smart-formtools button:disabled,.msj-smart-review-actions button:disabled{opacity:.6}
+.msj-smart-note{color:#827482;font-size:12px;line-height:1.6;margin:9px 0 0}
+.msj-smart-review-head{display:grid;gap:4px;margin-top:16px;padding-top:16px;border-top:1px solid #eadddf;color:#5a4654}
+.msj-smart-review-head strong{font-size:16px}.msj-smart-review-head small{font-size:12px;color:#80717b}
+.msj-smart-review-headline,.msj-smart-nutrition{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px}
+.msj-smart-meal label{min-width:0}.msj-smart-review-headline label,.msj-smart-item label{display:grid;gap:5px;font-size:12px;color:#796a73}
+.msj-smart-review-headline input,.msj-smart-review-headline select,.msj-smart-item input{width:100%;padding:10px 9px;min-height:42px;border:1px solid #e9dfe3;border-radius:11px;background:#fff;color:#4f434a}
+.msj-smart-item{background:#fff;border:1px solid #e9dfe3;border-radius:16px;padding:13px;margin-top:12px;display:grid;gap:10px}
+.msj-smart-item-title{display:flex;justify-content:space-between;gap:8px;align-items:center}.msj-smart-item-title b{color:#5c4b57;font-size:14px}.msj-smart-item-title small{font-size:11px;color:#957c90}
+.msj-smart-item details{border-top:1px solid #f1e9ed;padding-top:10px}.msj-smart-item summary{color:#725b70;font-size:12px;cursor:pointer;margin-bottom:8px}
+.msj-smart-review-note{font-size:12px;color:#766774;line-height:1.6;margin-top:10px}
+.msj-smart-summary{font-size:14px;font-weight:700;color:#5a465a;margin:12px 0}
+.msj-smart-review-actions{display:flex;gap:9px}.msj-smart-review-actions button{flex:1;min-height:43px;padding:9px 11px;border-radius:12px;border:1px solid #ddd0d9;background:white;color:#675466;font-weight:700;cursor:pointer}
+.msj-smart-review-actions .msj-smart-save{background:#675166;color:#fff;border:0}
+@media(max-width:390px){.msj-smart-meal{padding:13px}.msj-smart-formtools{gap:6px}.msj-smart-formtools button{padding:10px}.msj-smart-filename{max-width:95px}.msj-smart-review-actions{flex-direction:column}}
+@media(prefers-reduced-motion:reduce){.msj-smart-meal *{scroll-behavior:auto}}
+
+/* 桌菜共食：保持進階選項收合，避免擠壓 iPhone 記錄畫面。 */
+.msj-smart-sharing{margin:10px 0 4px;border:1px solid #eadce4;border-radius:13px;background:#fffafc;padding:10px 12px}
+.msj-smart-sharing>summary{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:4px;min-height:32px;cursor:pointer;color:#6b5269;font-size:13px;font-weight:700;list-style:none}
+.msj-smart-sharing>summary::-webkit-details-marker{display:none}
+.msj-smart-sharing>summary:before{content:'＋';font-size:15px;margin-right:2px}
+.msj-smart-sharing[open]>summary:before{content:'－'}
+.msj-smart-sharing>summary small{font-size:11px;font-weight:400;color:#907e88}
+.msj-smart-sharing-fields{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+.msj-smart-sharing-fields label{display:grid;gap:5px;font-size:12px;color:#77636f}
+.msj-smart-sharing-fields select{width:100%;min-width:0;padding:10px;border:1px solid #e9dfe3;border-radius:11px;background:white;color:#544850;min-height:44px}
+.msj-smart-sharing p{margin:9px 0 1px;font-size:11px;line-height:1.6;color:#80727c}
+@media(max-width:390px){.msj-smart-sharing-fields{grid-template-columns:1fr}.msj-smart-sharing>summary small{flex-basis:100%;padding-left:20px}}

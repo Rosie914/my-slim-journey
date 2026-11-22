@@ -14,6 +14,8 @@ import { renderMealSuite, initMealSuite } from "./meal-suite.js";
 import "./meal-suite.css";
 import "./diary-quick-actions.css";
 import { mountDiaryQuickActions } from "./diary-quick-actions.js";
+import { mountSmartMeal } from "./smart-meal.js";
+import "./smart-meal.css";
 import "./style.css";
 import "./ui-phase2.css";
 import "./ui-phase3.css";
@@ -1588,6 +1590,7 @@ async function showApp() {
       goal
     });
     mountDiaryQuickActions();
+    mountSmartMeal({ db: supabase, uid: analyticsUser, getDate: () => diarySelection || homeDate.format(new Date()), onSaved: () => showApp() });
   }
 
 }
