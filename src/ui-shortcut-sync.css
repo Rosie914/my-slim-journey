@@ -1,0 +1,9 @@
+/* One-tap Shortcut launcher and setup instructions */
+.home-row-actions { flex-wrap: wrap; }
+.home-shortcut, .health-shortcut-launch { border: 1px solid #d7c6d4; background: #f1e9f1; color: #62475e; border-radius: 15px; min-height: 44px; padding: 9px 13px; font: inherit; font-weight: 700; cursor: pointer; }
+.home-shortcut:focus-visible, .health-shortcut-launch:focus-visible { outline: 3px solid #ab83a6; outline-offset: 2px; }
+.health-sync-automation { margin: 18px 0; padding: 16px; background: #faf6fa; border: 1px solid #eadfe9; border-radius: 18px; }
+.health-sync-automation h3 { margin: 0 0 9px; font-size: 1.05rem; }
+.health-sync-automation p, .health-sync-automation li { line-height: 1.65; }
+.health-sync-automation ol { padding-left: 22px; }
+@media (max-width: 390px) { .home-row-actions { gap: 6px; } .home-shortcut { padding: 8px 10px; font-size: .88rem; } }

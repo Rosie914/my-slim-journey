@@ -12,6 +12,7 @@ import "./meal-suite.css";
 import "./style.css";
 import "./ui-phase2.css";
 import "./ui-phase3.css";
+import "./ui-shortcut-sync.css";
 import "./home-activity.css";
 import "./trend-charts.css";
 import { trendLineChart, goalProgress, mountWeightTrends } from "./trend-charts.js";
@@ -22,6 +23,17 @@ const supabase = createClient(
 );
 
 const app = document.querySelector("#app");
+let shortcutRefreshPending = false;
+function refreshAfterShortcutReturn() {
+  if (!window.__msjAwaitingShortcutReturn || shortcutRefreshPending || document.visibilityState === "hidden") return;
+  window.__msjAwaitingShortcutReturn = false;
+  shortcutRefreshPending = true;
+  // The shortcut uploads independently; allow the user to refresh again if it is still running.
+  Promise.resolve().then(() => showApp()).catch(console.error).finally(() => { shortcutRefreshPending = false; });
+}
+document.addEventListener("visibilitychange", refreshAfterShortcutReturn);
+window.addEventListener("focus", refreshAfterShortcutReturn);
+
 function selectChartPoint(node) {
   const graph=node.closest('.msj-trend-graph');
   const label=graph?.querySelector('.msj-trend-selected');
@@ -647,7 +659,7 @@ function renderHomeEnergyPlan(goal, recordedActivity, date) {
   const usingWorkouts = recordedActivity?.source === "workout";
   const activityLine = trendLineChart(history.map(item => ({date:item.day,value:item.calories})), {unit:'kcal',target,label:'每日活動消耗',color:'#a78ac5'});
   return `<section class="card msj-activity-card">
-    <div class="home-row"><h2>每日活動消耗</h2><div class="home-row-actions"><button type="button" id="homeHealthRefresh" class="home-refresh" aria-label="重新讀取 Apple 健康資料">↻ 更新</button><button type="button" data-tab="activity" class="home-link">記錄運動 ›</button></div></div>
+    <div class="home-row"><h2>每日活動消耗</h2><div class="home-row-actions"><button type="button" id="homeHealthShortcut" class="home-shortcut" aria-label="執行 Apple Health Sync 捷徑">同步健康</button><button type="button" id="homeHealthRefresh" class="home-refresh" aria-label="重新讀取 Apple 健康資料">↻ 更新</button><button type="button" data-tab="activity" class="home-link">記錄運動 ›</button></div></div>
     <p class="msj-activity-caption"><strong class="msj-activity-date">${dayLabel}活動紀錄</strong> · ${sourceLabel}</p>
     <div class="msj-activity-top"><div><span>${usingWorkouts ? "已記錄運動消耗" : (isToday ? "今日已消耗" : "選定日期消耗")}</span><strong>${actual === null ? "—" : homeNumber.format(Math.round(actual))}</strong><small>kcal</small></div>
       <div><span>每日估算目標</span><strong>${target == null ? "—" : homeNumber.format(target)}</strong><small>kcal</small></div></div>
@@ -659,7 +671,7 @@ function renderHomeEnergyPlan(goal, recordedActivity, date) {
     ${activityLine}
     <p class="msj-trend-foot">圓點可查看日期與數值 · 虛線為每日目標 · 缺少資料不補零</p>
     <div class="msj-activity-steps"><span>${isToday ? "今日步數" : "選定日期步數"}</span><strong>${steps}</strong></div>
-    <p class="home-note" id="homeHealthStatus">活動目標依活動程度及減重階段估算。尚未同步 Apple 健康全天活動熱量時，暫以已記錄運動消耗顯示，未包含日常活動；兩者不相加，避免重複計算，也不會把消耗熱量自動加回飲食額度。未記錄日期不視為 0 kcal。目前查看 ${date.replaceAll("-", "/")}；切換上方日期會同步更新此卡數值、步數與七日折線圖。更新僅重新讀取已上傳的資料。</p>
+    <p class="home-note" id="homeHealthStatus">活動目標依活動程度及減重階段估算。尚未同步 Apple 健康全天活動熱量時，暫以已記錄運動消耗顯示，未包含日常活動；兩者不相加，避免重複計算，也不會把消耗熱量自動加回飲食額度。未記錄日期不視為 0 kcal。目前查看 ${date.replaceAll("-", "/")}；切換上方日期會同步更新此卡數值、步數與七日折線圖。「同步健康」會開啟 iPhone 的 Apple Health Sync 捷徑；返回 App 後會重新讀取。單按「更新」只讀取已上傳的資料。</p>
   </section>`;
 }
 
@@ -899,6 +911,19 @@ function renderAppShell(content) {
         <p>網站不能直接讀取 iPhone「健康」資料。完成捷徑設定後，可同步每日步數、活動熱量與運動項目；資料會寫入你的運動紀錄。</p>
         <p class="health-sync-notice"><strong>目前進度：</strong>每日步數已同步。Apple 健康活動熱量與捷徑運動項目尚未完整同步；沿用「Apple Health Sync」即可，不必刪除、改名或建立副本。</p>
         <ol><li>先按下方按鈕建立同步金鑰並複製保存。金鑰只顯示一次；不要貼到聊天或分享給別人。</li><li>依照下方步驟修改現有的 <code>Apple Health Sync</code>：保留步數查詢，移除 7 天加總，改為逐日清單並加入上傳。</li><li>手動執行後，只有看到 <code>ok: true</code> 且本頁出現「最近成功同步」，才算完成；之後再設定每日自動化。</li></ol>
+        <section class="health-sync-automation" aria-label="自動同步與一鍵同步設定">
+          <h3>一鍵同步與定時自動化</h3>
+          <p>先確認現有 <code>Apple Health Sync</code> 捷徑能成功上傳，再設定自動化。以下操作不會自動建立 iPhone 自動化。</p>
+          <button type="button" id="settingsHealthShortcut" class="health-shortcut-launch">開啟 Apple Health Sync 捷徑</button>
+          <p id="settingsShortcutStatus" role="status" aria-live="polite"></p>
+          <ol>
+            <li>開啟 iPhone「捷徑」App →「自動化」→「＋」→「特定時間」。</li>
+            <li>設定每天 <strong>08:00</strong>、<strong>12:30</strong>、<strong>20:30</strong> 各一個自動化（時間可自行調整）。</li>
+            <li>選擇「立即執行」（若系統提供），加入「執行捷徑」動作，指定既有的 <code>Apple Health Sync</code>。</li>
+            <li>第一次執行請允許「健康」讀取與網路存取權限。回到 App 按「更新」檢查同步時間和步數。</li>
+          </ol>
+          <p>iOS 版本、裝置鎖定及健康權限可能影響是否能無提示執行；若自動化失敗，請先手動執行捷徑排除問題。每日定時同步不是即時同步。</p>
+        </section>
         <button id="createHealthSyncToken" type="button">建立捷徑同步金鑰</button>
         <p id="healthSyncStatus" role="status" aria-live="polite"></p>
         <div id="healthSyncTokenList" aria-live="polite"><p>正在讀取同步狀態…</p></div>
@@ -1103,6 +1128,17 @@ async function showApp() {
     }, { passive: true });
   }
 
+  // iOS PWA cannot access HealthKit directly. Open the user's existing Shortcut.
+  // A return to the foreground only re-fetches data already uploaded by that Shortcut.
+  const shortcutLaunch = app.querySelectorAll("#homeHealthShortcut, #settingsHealthShortcut");
+  shortcutLaunch.forEach(button => {
+    button.onclick = () => {
+      const status = app.querySelector("#settingsShortcutStatus") || app.querySelector("#homeHealthStatus");
+      if (status) status.textContent = "正在開啟 Apple Health Sync。捷徑執行完成後，返回此 App 會重新讀取資料；若沒有自動更新，請按「更新」。";
+      window.__msjAwaitingShortcutReturn = true;
+      window.location.href = "shortcuts://run-shortcut?name=Apple%20Health%20Sync";
+    };
+  });
   const homeHealthRefresh = app.querySelector("#homeHealthRefresh");
   if (homeHealthRefresh) homeHealthRefresh.onclick = async () => {
     const status = app.querySelector("#homeHealthStatus");
