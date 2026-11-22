@@ -1,4 +1,6 @@
 import "./activity-compact.css";
+import "./coach-deficit.css";
+import { mountCoachDeficit } from "./coach-deficit.js";
 
 import { renderAnalytics, initAnalytics } from "./analytics.js";
 import { renderWeightInsights, renderReportInsights } from "./insights.js";
@@ -1168,7 +1170,10 @@ async function showApp() {
       if (currentTab === analyticsTab) await renderWeightInsights(supabase, analyticsUser, nutritionProfile);
     },
     reports: () => renderReportInsights(supabase, analyticsUser, nutritionProfile, latestWeight),
-    coach: () => renderCoachGuidance(supabase, analyticsUser, nutritionProfile, latestWeight)
+    coach: async () => {
+      await renderCoachGuidance(supabase, analyticsUser, nutritionProfile, latestWeight);
+      if (currentTab === analyticsTab) await mountCoachDeficit(supabase, analyticsUser, nutritionProfile, latestWeight);
+    }
   };
   if (Object.hasOwn(analyticsTasks, analyticsTab)) {
     Promise.resolve().then(analyticsTasks[analyticsTab]).catch(error => {
