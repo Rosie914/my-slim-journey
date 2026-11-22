@@ -143,6 +143,72 @@ async function compressedPhoto(file) {
     return { file:converted, base64:dataUrl.split(",")[1] };
   } finally { URL.revokeObjectURL(url); }
 }
+// 視覺辨識 3.0：以本人份量重新換算；不確定時清除舊營養，避免「兩口飯仍顯示一碗熱量」。
+// 這些是一般份量假設，不是對食物的秤重測量。
+const quantityWords = { "零":0, "一":1, "二":2, "兩":2, "三":3, "四":4, "五":5, "六":6, "七":7, "八":8, "九":9, "十":10, "半":.5, "四分之一":.25, "四分之三":.75 };
+const knownGrams = [
+  { re:/白飯|米飯|糙米飯|紫米飯|白米飯/, units:{ "碗":150,"小碗":100,"大碗":220,"口":15,"份":150 } },
+  { re:/香蕉/, units:{ "根":100 } },
+  { re:/水煮蛋|雞蛋|滷蛋|茶葉蛋/, units:{ "顆":50,"個":50 } },
+  { re:/蘋果/, units:{ "顆":160,"個":160 } },
+  { re:/地瓜/, units:{ "條":150,"根":150 } }
+];
+function servingParts(raw) {
+  const t = String(raw ?? "").replace(/[\s　]/g, "")
+    .replace(/^(?:我(?:只)?吃(?:了)?|吃(?:了)?|大概|大約|約|差不多)/, "")
+    .replace(/(?:左右|上下|的量|左右的量)$/, "")
+    .replace(/筷子/g,"筷").replace(/四分之一/g,"1/4").replace(/四分之三/g,"3/4").replace(/一半/g,"半")
+    .replace(/半個/g,"半個");
+  if (!t) return null;
+  const hit = t.match(/^(1\/4|1\/2|3\/4|½|¼|¾|\d+(?:\.\d+)?|半|[一二兩三四五六七八九十])?(大|小)?(碗|根|條|顆|個|片|塊|口|筷|杯|份|匙|湯匙|茶匙|盤|掌|拳頭)?$/);
+  if (!hit || (!hit[1] && !hit[3])) return null;
+  const number = {"1/4":.25,"1/2":.5,"3/4":.75,"½":.5,"¼":.25,"¾":.75}[hit[1]]
+    ?? quantityWords[hit[1]] ?? (hit[1] ? Number(hit[1]) : 1);
+  if (!Number.isFinite(number) || number <= 0) return null;
+  const unit = (hit[2] || "") + (hit[3] || "");
+  return { count:number, unit };
+}
+function portionGramEstimate(foodName, serving) {
+  if (!serving?.unit) return null;
+  const spec = knownGrams.find(item => item.re.test(String(foodName || "")));
+  const grams = spec?.units?.[serving.unit];
+  return Number.isFinite(grams) ? grams * serving.count : null;
+}
+function servingRatio(foodName, originalText, newText) {
+  const original = servingParts(originalText);
+  const next = servingParts(newText);
+  if (!original || !next) return null;
+  let ratio = null, description = "";
+  if (original.unit === next.unit) {
+    ratio = next.count / original.count;
+    description = `相同份量單位（${original.unit || "份"}）`;
+  } else if (!next.unit && original.unit) {
+    // 例如「一份」改成「1/4」，視為原份量的四分之一。
+    ratio = next.count / original.count;
+    description = "依原份量比例";
+  } else {
+    const oldGrams = portionGramEstimate(foodName, original);
+    const newGrams = portionGramEstimate(foodName, next);
+    if (oldGrams && newGrams) {
+      ratio = newGrams / oldGrams;
+      description = `依常見份量估算（${Math.round(oldGrams)}g → ${Math.round(newGrams)}g）`;
+    }
+  }
+  if (!Number.isFinite(ratio) || ratio <= 0 || ratio > 20) return null;
+  return { ratio, description };
+}
+function recalculateServing(item, foodName, newQuantity) {
+  if (!item || String(foodName || "").trim() !== String(item.food_name || "").trim()) return null;
+  if (String(newQuantity || "").trim() === String(item.quantity || "").trim()) return {...item};
+  const scale = servingRatio(foodName, item.quantity, newQuantity);
+  if (!scale) return null;
+  return {
+    ...item, quantity:newQuantity,
+    serving_weight_g:item.serving_weight_g == null ? null : round(Number(item.serving_weight_g)*scale.ratio),
+    ...Object.fromEntries(fields.map(key=>[key,item[key] == null ? null : round(Number(item[key])*scale.ratio)])),
+    _portionReason:scale.description, confidence:scale.ratio !== 1 ? "medium" : item.confidence
+  };
+}
 function blankItem(text = "") {
   return { food_name:clean(text).slice(0,100) || "", quantity:"", serving_weight_g:null,
     ...Object.fromEntries(fields.map(key => [key,null])), nutrition_source:"manual", confidence:"low", _from:"待自行補充" };
@@ -179,6 +245,7 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
         <span id="msjSmartFile" class="msj-smart-filename" aria-live="polite"></span>
         <button type="submit" id="msjSmartAnalyze">智慧辨識</button>
       </div>
+      <div id="msjSmartPhotoPreview" class="msj-smart-photo-preview" hidden></div>
       <p id="msjSmartStatus" role="status" aria-live="polite" class="msj-smart-note">例如「半根香蕉」會先用常見份量估算；有完全相符的紀錄時會優先沿用。</p>
     </form>
     <div id="msjSmartReview" hidden></div>`;
@@ -228,11 +295,25 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
   const quickHint = diary.querySelector('[data-msj-quick="add"] small');
   if (quickHint) quickHint.textContent = "文字或拍照一站完成";
 
+  let previewUrl = null;
   photoInput.onchange = () => {
     photo = null;
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    previewUrl = null;
     const file = photoInput.files?.[0];
+    const preview = host.querySelector("#msjSmartPhotoPreview");
     host.querySelector("#msjSmartFile").textContent = file ? `已選：${file.name}` : "";
-    if (file) say("照片會先縮小後再辨識；也可以輸入文字補充食材和份量。");
+    preview.replaceChildren();
+    preview.hidden = !file;
+    if (file) {
+      previewUrl = URL.createObjectURL(file);
+      const image = document.createElement("img");
+      image.alt = "準備辨識的餐點照片";
+      image.src = previewUrl;
+      image.loading = "lazy";
+      preview.append(image);
+      say("照片已選好。可以補充：例如『四人桌菜，我吃魚四分之一、白飯兩口』。");
+    }
   };
   textInput.addEventListener("input", () => { if (!loading) review.hidden = true; });
 
@@ -246,7 +327,9 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
         <div class="msj-smart-items">${items.map((item,i) => `<div class="msj-smart-item" data-smart-index="${i}">
           <div class="msj-smart-item-title"><b>食物 ${i+1}</b><small>${esc(item._from || (origin === "ai_photo" ? "AI 拍照估算" : "AI 文字估算"))}</small></div>
           <label>食物名稱<input data-key="food_name" required value="${esc(item.food_name)}"></label>
-          <label>份量（用日常描述就好）<input data-key="quantity" placeholder="例如：半根、一小碗" value="${esc(item.quantity)}"></label>
+          <label>份量（用日常描述就好）<input data-key="quantity" placeholder="例如：半根、兩口、四分之一片" value="${esc(item.quantity)}"></label>
+          <p class="msj-smart-portion-status" data-smart-portion-status role="status">份量可直接修改；已知比例會自動調整營養值。</p>
+          <button type="button" class="msj-smart-reestimate" data-smart-reestimate>✦ 依目前份量重新估算</button>
           <div class="msj-smart-nutrition">${["calories","protein_g"].map(key=>`<label>${labels[key]}<input data-key="${key}" type="number" min="0" step="any" value="${esc(item[key] ?? "")}"></label>`).join("")}</div>
           <details><summary>調整重量與其他營養（選填）</summary>
             <label>估計重量 g（不必填）<input data-key="serving_weight_g" type="number" min="0" step="any" value="${esc(item.serving_weight_g ?? "")}"></label>
@@ -255,7 +338,7 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
         </div>`).join("")}</div>
         <p class="msj-smart-review-note">${esc(note)}</p>
         <p class="msj-smart-summary" aria-live="polite"></p>
-        <div class="msj-smart-review-actions"><button type="button" data-smart-reedit>返回修改輸入</button><button type="submit" class="msj-smart-save">確認儲存</button></div>
+        <div class="msj-smart-review-actions"><button type="button" data-smart-reedit>返回修改輸入</button><button type="button" data-smart-retry>重新辨識整餐</button><button type="submit" class="msj-smart-save">確認儲存</button></div>
         <p data-save-status class="msj-smart-note" role="status"></p>
       </form>`;
     review.scrollIntoView({ behavior:"smooth", block:"nearest" });
@@ -267,8 +350,12 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
         quantity:String(value("quantity") || "").trim() || null,
         serving_weight_g:n(value("serving_weight_g")),
         ...Object.fromEntries(fields.map(key => [key, n(value(key))])),
-        nutrition_source:parsed[Number(row.dataset.smartIndex)]?.nutrition_source || "manual",
-        confidence:parsed[Number(row.dataset.smartIndex)]?.confidence || "low"
+        nutrition_source:row.dataset.smartEstimate === "manual" || row.dataset.smartEstimate === "needs-review" ? "manual" :
+          ["scaled", "reestimated"].includes(row.dataset.smartEstimate) ? "ai_estimate" :
+          (parsed[Number(row.dataset.smartIndex)]?.nutrition_source || "manual"),
+        confidence:["scaled", "manual"].includes(row.dataset.smartEstimate) ? "medium" :
+          row.dataset.smartEstimate === "needs-review" ? "low" :
+          (parsed[Number(row.dataset.smartIndex)]?.confidence || "low")
       };
     });
     const summary = reviewForm.querySelector(".msj-smart-summary");
@@ -277,26 +364,90 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
       const total = key => items.every(item => item[key] !== null) ? nf.format(items.reduce((s,item)=>s+item[key],0)) : "資料不完整";
       summary.textContent = `合計熱量 ${total("calories")} kcal · 蛋白質 ${total("protein_g")} g`;
     };
+    function setNutrition(row, update) {
+      const keys = ["serving_weight_g", ...fields];
+      for (const key of keys) {
+        const input = row.querySelector(`[data-key="${key}"]`);
+        if (input) input.value = update ? (update[key] ?? "") : "";
+      }
+    }
     reviewForm.addEventListener("input", event => {
-      // 「半根」改成「一根」時，同步調整常見食物的參考值；不要求填克數。
-      if (event.target.dataset.key === "quantity") {
+      const key = event.target.dataset.key;
+      if (key === "quantity" || key === "food_name") {
         const row = event.target.closest(".msj-smart-item");
-        const original = parsed[Number(row?.dataset.smartIndex)];
-        if (row && original?._from?.startsWith("常見份量")) {
-          const food = row.querySelector('[data-key="food_name"]').value.trim();
-          const next = commonPortion(`${event.target.value}${food}`);
-          if (next) {
-            for (const key of ["serving_weight_g", ...fields]) {
-              const input = row.querySelector(`[data-key="${key}"]`);
-              if (input) input.value = next[key] ?? "";
-            }
+        if (row) {
+          const original = parsed[Number(row.dataset.smartIndex)];
+          const name = row.querySelector('[data-key="food_name"]').value;
+          const quantity = row.querySelector('[data-key="quantity"]').value;
+          const updated = recalculateServing(original, name, quantity);
+          const message = row.querySelector("[data-smart-portion-status]");
+          setNutrition(row, updated);
+          row.dataset.smartEstimate = updated ? "scaled" : "needs-review";
+          if (updated && quantity.trim() === String(original.quantity || "").trim() && name.trim() === String(original.food_name || "").trim()) {
+            message.textContent = "目前使用辨識時的份量與營養值。";
+          } else if (updated) {
+            message.textContent = `已依新份量同步估算熱量及營養（${updated._portionReason || "比例換算"}），請確認。`;
+          } else {
+            message.textContent = "新份量無法可靠換算，已清除舊營養，避免把整份熱量算成少量。可按下方 AI 重新估算，或手動填寫。";
           }
+        }
+      } else if (fields.includes(key)) {
+        const row = event.target.closest(".msj-smart-item");
+        if (row) {
+          row.dataset.smartEstimate = "manual";
+          row.querySelector("[data-smart-portion-status]").textContent = "已手動調整營養值；儲存前請確認各欄位符合目前份量。";
         }
       }
       showSummary();
     });
+    reviewForm.addEventListener("click", async event => {
+      const button = event.target.closest("[data-smart-reestimate]");
+      if (!button || button.disabled) return;
+      const row = button.closest(".msj-smart-item");
+      const index = Number(row.dataset.smartIndex);
+      const name = row.querySelector('[data-key="food_name"]').value.trim();
+      const quantity = row.querySelector('[data-key="quantity"]').value.trim();
+      const rowStatus = row.querySelector("[data-smart-portion-status]");
+      if (!name || !quantity) {
+        rowStatus.textContent = "請先填食物名稱與實際份量，例如『白飯、兩口』。";
+        return;
+      }
+      button.disabled = true;
+      const saveButton = reviewForm.querySelector(".msj-smart-save");
+      saveButton.disabled = true;
+      const oldText = button.textContent;
+      button.textContent = "重新估算中…";
+      rowStatus.textContent = "正在依你實際吃的份量重新估算，不會把整盤算給你…";
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 18000);
+      try {
+        const body = { text:`只記錄我本人吃到的單項食物：${name}，食用份量${quantity}。請將它作為一項食物，不要按整桌總量計算。`, selectedDate:reviewDate || date() };
+        const { data:result, error } = await db.functions.invoke("parse-meal-text", { body, signal:controller.signal });
+        if (error || result?.success === false) throw Error(result?.error || error?.message || "AI 未成功");
+        if (!Array.isArray(result?.items) || result.items.length !== 1) throw Error("AI 無法可靠確認單一食物，請手動補充。");
+        const estimated = { ...result.items[0],food_name:name,quantity,
+          _from:"依目前份量 AI 重新估算",nutrition_source:"ai_estimate",confidence:"low" };
+        parsed[index] = estimated;
+        setNutrition(row, estimated);
+        row.dataset.smartEstimate = "reestimated";
+        row.querySelector(".msj-smart-item-title small").textContent = estimated._from;
+        rowStatus.textContent = "已依新份量重新估算；請核對熱量、蛋白質與烹調方式。";
+      } catch (error) {
+        rowStatus.textContent = `重新估算未完成（${error?.name === "AbortError" ? "逾時" : error.message || "服務忙碌"}），已保留份量及現有資料；可再試一次或手動填寫。`;
+      } finally {
+        clearTimeout(timer);
+        button.disabled = false;
+        button.textContent = oldText;
+        saveButton.disabled = false;
+        showSummary();
+      }
+    });
     showSummary();
     reviewForm.querySelector("[data-smart-reedit]").onclick = () => { review.hidden = true; textInput.focus(); };
+    reviewForm.querySelector("[data-smart-retry]").onclick = () => {
+      review.hidden = true;
+      form.requestSubmit();
+    };
     reviewForm.onsubmit = async event => {
       event.preventDefault();
       if (loading) return;
@@ -304,6 +455,8 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
       const saveButton = reviewForm.querySelector(".msj-smart-save");
       const items = getRows();
       if (items.some(item => !item.food_name)) { saveStatus.textContent = "請先填寫食物名稱。"; return; }
+      const incomplete = items.some(item => item.calories === null || item.protein_g === null);
+      if (incomplete && !confirm("有食物的熱量或蛋白質尚未估算。仍可儲存為不完整紀錄，日後補齊；確定要儲存嗎？")) return;
       const when = reviewDate || date();
       const rawTime = reviewForm.elements.meal_time.value;
       if (!/^\d\d:\d\d$/.test(rawTime)) { saveStatus.textContent = "請選擇用餐時間。"; return; }
@@ -372,7 +525,7 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
         payload = { text:[raw.slice(0,1350),share?.instruction].filter(Boolean).join("\n"), selectedDate:reviewDate };
       }
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 23000);
+      const timer = setTimeout(() => controller.abort(), 20500);
       let result, error;
       try {
         ({data:result,error} = await db.functions.invoke(file ? "analyze-food" : "parse-meal-text", {body:payload,signal:controller.signal}));
@@ -393,7 +546,7 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
       say("辨識完成，確認後儲存。");
     } catch (error) {
       origin = file ? "ai_photo" : "manual";
-      const msg = error?.name === "AbortError" || /abort/i.test(error?.message || "") ? "AI 等待超過 23 秒" : (error?.message || "AI 暫時無法使用");
+      const msg = error?.name === "AbortError" || /abort/i.test(error?.message || "") ? "AI 等待超過 20 秒" : (error?.message || "AI 暫時無法使用");
       const recovered = fallback?.length ? fallback : [blankItem(raw)];
       renderReview(recovered, `AI 未完成（${msg}）。${share ? "桌菜無法可靠拆解，請逐項確認自己吃了什麼；" : ""}已保留輸入與可用的資料；缺少的熱量不會填成 0。可直接修改並儲存。`);
       say("AI 暫時失敗，但你不需要重新輸入，請直接確認或補充下方資訊。");
@@ -402,4 +555,5 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
 }
 
 // 供簡易單元測試使用：不暴露使用者資料。
-export const __test = { commonPortion, localInterpret, splitFoods, identifyMemory, sharingContext };
+export const __test = { commonPortion, localInterpret, splitFoods, identifyMemory, sharingContext,
+  servingParts, servingRatio, recalculateServing, portionGramEstimate };
