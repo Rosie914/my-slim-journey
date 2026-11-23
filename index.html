@@ -1,24 +1,87 @@
-
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="theme-color" content="#fbf8f6">
+  <meta name="theme-color" content="#fff9f2">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="My Slim Journey">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
   <title>My Slim Journey</title>
+  <style>
+    /* Critical loading UI: visible before the app bundle downloads or authentication finishes. */
+    #msj-boot-screen {
+      position: fixed;
+      inset: 0;
+      z-index: 99999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at 50% 43%, #fffefb 0%, #fff9f2 66%, #f9f1eb 100%);
+      color: #684f48;
+      font-family: -apple-system, BlinkMacSystemFont, "Noto Sans TC", sans-serif;
+      text-align: center;
+      transition: opacity .28s ease, visibility .28s ease;
+    }
+    #msj-boot-screen.msj-boot-hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+    .msj-boot-content { width: min(84vw, 360px); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; transform: translateY(-2.5vh); }
+    .msj-boot-logo { width: clamp(152px, 44vw, 198px); height: auto; aspect-ratio: 1; border-radius: 28%; object-fit: contain; display: block; filter: drop-shadow(0 9px 18px #b9794614); }
+    .msj-boot-name { font-size: clamp(23px, 6vw, 27px); font-weight: 750; letter-spacing: -.65px; margin: 20px 0 0; line-height: 1.25; }
+    .msj-boot-caption { color: #ae9184; font-size: 12px; font-weight: 500; letter-spacing: 1.2px; margin: 7px 0 0; }
+    .msj-boot-dots { display: flex; align-items: center; justify-content: center; gap: 9px; margin-top: 27px; height: 12px; }
+    .msj-boot-dots span { width: 7px; height: 7px; border-radius: 50%; background: #d4a189; animation: msj-boot-dot 1.15s infinite ease-in-out; }
+    .msj-boot-dots span:nth-child(2) { animation-delay: .15s; }
+    .msj-boot-dots span:nth-child(3) { animation-delay: .3s; }
+    @keyframes msj-boot-dot { 0%, 70%, 100% { transform: translateY(0); opacity: .4; } 35% { transform: translateY(-6px); opacity: 1; } }
+    #msj-boot-help { margin: 24px 0 0; font-size: 12px; line-height: 1.75; color: #8e756c; }
+    #msj-boot-retry { border: 1px solid #d9bca9; border-radius: 999px; background: #fff; color: #77584b; padding: 9px 20px; margin-top: 9px; font: inherit; font-size: 13px; }
+    @media (prefers-reduced-motion: reduce) { .msj-boot-dots span { animation: none; opacity: .8; } #msj-boot-screen { transition: none; } }
+  </style>
 </head>
 <body>
+  <div id="msj-boot-screen" role="status" aria-live="polite" aria-label="My Slim Journey 載入中">
+    <div class="msj-boot-content">
+      <img class="msj-boot-logo" src="/apple-touch-icon.png" width="180" height="180" alt="微笑的法棍與可頌">
+      <div class="msj-boot-name">My Slim Journey</div>
+      <p class="msj-boot-caption">EVERY LITTLE STEP COUNTS</p>
+      <div class="msj-boot-dots" aria-label="載入中"><span></span><span></span><span></span></div>
+      <div id="msj-boot-help" hidden>
+        載入時間有點長，請檢查網路連線。
+        <div><button type="button" id="msj-boot-retry" onclick="location.reload()">重新整理</button></div>
+      </div>
+    </div>
+  </div>
   <div id="app">Loading...</div>
+  <script>
+    (() => {
+      const app = document.getElementById('app');
+      const screen = document.getElementById('msj-boot-screen');
+      let timer;
+      const observer = new MutationObserver(() => {
+        // Only remove splash when a real logged-in app or login view has been rendered.
+        if (!app.querySelector('.app-header, .login-page')) return;
+        clearTimeout(timer);
+        observer.disconnect();
+        screen.classList.add('msj-boot-hidden');
+        window.setTimeout(() => screen.remove(), 320);
+      });
+      observer.observe(app, { childList: true });
+      timer = window.setTimeout(() => {
+        const help = document.getElementById('msj-boot-help');
+        if (help) help.hidden = false;
+      }, 15000);
+    })();
+  </script>
   <script type="module" src="/src/main.js"></script>
-<script>
-  if ("serviceWorker" in navigator) {
-    window.addEventListener("load", () => {
-      navigator.serviceWorker.register("/sw.js").catch(console.error);
-    });
-  }
-</script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(console.error);
+      });
+    }
+  </script>
 </body>
 </html>
