@@ -111,7 +111,7 @@ function suggestType(text) {
   const hour = Number(timeTaipei().slice(0,2));
   return hour < 11 ? "breakfast" : hour < 16 ? "lunch" : hour < 21 ? "dinner" : "snack";
 }
-async function compressedPhoto(file) {
+async function compressedPhoto(file, maxDimension=1280, jpegQuality=.72) {
   if (!file || !["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"].includes(file.type)) {
     throw Error("請選擇 JPG、PNG 或 WebP 照片；HEIC 照片需裝置支援轉檔。");
   }
@@ -124,14 +124,14 @@ async function compressedPhoto(file) {
       element.onerror = () => reject(Error("無法讀取照片，請改選 JPG 或 PNG。"));
       element.src = url;
     });
-    const scale = Math.min(1, 1280 / Math.max(img.naturalWidth, img.naturalHeight));
+    const scale = Math.min(1, maxDimension / Math.max(img.naturalWidth, img.naturalHeight));
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
     canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
     const context = canvas.getContext("2d");
     if (!context) throw Error("瀏覽器無法處理照片。請改用文字記錄。");
     context.drawImage(img, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", .72));
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", jpegQuality));
     if (!blob) throw Error("照片壓縮失敗，請改用文字記錄。");
     const converted = new File([blob], "meal.jpg", { type:"image/jpeg" });
     const dataUrl = await new Promise((resolve, reject) => {
@@ -160,7 +160,7 @@ function servingParts(raw) {
     .replace(/筷子/g,"筷").replace(/四分之一/g,"1/4").replace(/四分之三/g,"3/4").replace(/一半/g,"半")
     .replace(/半個/g,"半個");
   if (!t) return null;
-  const hit = t.match(/^(1\/4|1\/2|3\/4|½|¼|¾|\d+(?:\.\d+)?|半|[一二兩三四五六七八九十])?(大|小)?(碗|根|條|顆|個|片|塊|口|筷|杯|份|匙|湯匙|茶匙|盤|掌|拳頭)?$/);
+  const hit = t.match(/^(1\/4|1\/2|3\/4|½|¼|¾|\d+(?:\.\d+)?|半|[一二兩三四五六七八九十])?(大|小)?(碗|根|條|顆|個|片|塊|口|筷|杯|份|匙|湯匙|茶匙|盤|掌|拳頭|g|G|克|公克|ml|mL|毫升)?$/);
   if (!hit || (!hit[1] && !hit[3])) return null;
   const number = {"1/4":.25,"1/2":.5,"3/4":.75,"½":.5,"¼":.25,"¾":.75}[hit[1]]
     ?? quantityWords[hit[1]] ?? (hit[1] ? Number(hit[1]) : 1);
@@ -214,6 +214,48 @@ function blankItem(text = "") {
     ...Object.fromEntries(fields.map(key => [key,null])), nutrition_source:"manual", confidence:"low", _from:"待自行補充" };
 }
 
+// Food package data is treated as an attributed source, not an AI guess.
+// A GTIN must pass its checksum before any lookup (EAN-8/13, UPC-A, GTIN-14).
+function validGTIN(code) {
+  if (!/^(?:\d{8}|\d{12,14})$/.test(String(code ?? ""))) return false;
+  const digits=String(code).split("").map(Number);
+  const check=digits.pop();
+  const sum=digits.reverse().reduce((acc,digit,index)=>acc+digit*(index%2===0?3:1),0);
+  return (10-sum%10)%10===check;
+}
+function portionFromProduct(product, grams) {
+  const amount=Number(grams), unit=product.unit === "ml"?"ml":"g";
+  if(!Number.isFinite(amount)||amount<=0||amount>5000)throw Error("請輸入合理的食用量（0–5,000 g／ml）。");
+  const nutrients=product.nutrients || {};
+  const map={calories:"calories",protein_g:"protein_g",carbs_g:"carbs_g",fat_g:"fat_g",fiber_g:"fiber_g",sugar_g:"sugar_g",sodium_mg:"sodium_g"};
+  return {
+    food_name:[product.brand,product.name].filter(Boolean).join(" · ")||"包裝食品",
+    quantity:`${amount} ${unit}`,serving_weight_g:unit==="g"?amount:null,
+    ...Object.fromEntries(Object.entries(map).map(([key,source])=>{
+      const original=n(nutrients[source]);
+      return [key,original===null?null:round(original*amount/100*(key==="sodium_mg"?1000:1))];
+    })),nutrition_source:"food_database",confidence:"medium",
+    _from:"Open Food Facts 商品資料（請核對包裝）"
+  };
+}
+function portionFromLabel(label, amount, edits={}) {
+  const basis=label?.basis;
+  if(!["per_serving","per_100g","per_100ml"].includes(basis))throw Error("營養標示的計算基準不明，請重新拍攝清楚的欄位。");
+  const qty=Number(amount);
+  if(!Number.isFinite(qty)||qty<=0||qty>10000)throw Error("食用份量必須大於 0 且在合理範圍。");
+  const factor=basis==="per_serving"?qty:qty/100;
+  const unit=basis==="per_100g"?"g":basis==="per_100ml"?"ml":"份";
+  const nutrition={...label.nutrition,...edits};
+  return {
+    food_name: String(label.product_name||"").trim()||"包裝食品（請補充名稱）",
+    quantity:`${qty} ${unit}`,serving_weight_g:unit==="g"?qty:null,
+    ...Object.fromEntries(fields.map(key=>{
+      const value=n(nutrition[key]);return [key,value===null?null:round(value*factor)];
+    })),nutrition_source:"brand_label",confidence:"medium",
+    _from:`包裝營養標示（${basis==="per_serving"?"每份":basis==="per_100g"?"每 100g":"每 100ml"}，請核對）`
+  };
+}
+
 export function mountSmartMeal({ db, uid, getDate, onSaved }) {
   const diary = document.getElementById("mealDiary");
   const overview = diary?.querySelector(".diary-overview");
@@ -245,6 +287,12 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
         <span id="msjSmartFile" class="msj-smart-filename" aria-live="polite"></span>
         <button type="submit" id="msjSmartAnalyze">智慧辨識</button>
       </div>
+      <div class="msj-smart-package-actions" aria-label="包裝食品快速記錄">
+        <button type="button" data-msj-package="barcode">▥ 掃描商品條碼</button>
+        <button type="button" data-msj-package="label">▤ 拍營養標示</button>
+      </div>
+      <section id="msjPackagePanel" class="msj-package-panel" aria-live="polite" hidden></section>
+      <div id="msjQuickFavorites" class="msj-quick-favorites" hidden></div>
       <div id="msjSmartPhotoPreview" class="msj-smart-photo-preview" hidden></div>
       <p id="msjSmartStatus" role="status" aria-live="polite" class="msj-smart-note">例如「半根香蕉」會先用常見份量估算；有完全相符的紀錄時會優先沿用。</p>
     </form>
@@ -261,6 +309,8 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
   const sharingUI = host.querySelector("#msjSmartSharing");
   const shareCount = host.querySelector("#msjSmartDiners");
   const shareMode = host.querySelector("#msjSmartShareMode");
+  const packagePanel=host.querySelector("#msjPackagePanel");
+  const quickFavorites=host.querySelector("#msjQuickFavorites");
   const date = () => getDate?.() || dateTaipei();
   let memory = [], parsed = [], photo = null, origin = "manual", loading = false;
   let currentText = "", reviewDate = null;
@@ -284,6 +334,7 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
         memory.push(...(meal.meal_items || []).map(item => ({...item, _memoryFrom:"歷史紀錄"})));
       }
     }
+    renderQuickFavorites();
   }).catch(() => {});
 
   const addButton = diary.querySelector("#diaryAdd");
@@ -316,6 +367,169 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
     }
   };
   textInput.addEventListener("input", () => { if (!loading) review.hidden = true; });
+
+  function renderQuickFavorites() {
+    const seen=new Set(), recent=[];
+    for (const entry of memory) {
+      const key=String(entry.food_name||"").trim().toLowerCase()+"|"+String(entry.quantity||entry.serving_label||"").trim();
+      if(!entry.food_name||n(entry.calories)===null||seen.has(key))continue;
+      seen.add(key);recent.push(entry);
+      if(recent.length===5)break;
+    }
+    if(!recent.length){quickFavorites.hidden=true;return;}
+    quickFavorites.hidden=false;
+    quickFavorites.innerHTML=`<small>常吃的食物 · 點一下即可確認</small><div>${recent.map((entry,index)=>
+      `<button type="button" data-msj-quickfood="${index}">${esc(entry.food_name)}${entry.quantity||entry.serving_label?` · ${esc(entry.quantity||entry.serving_label)}`:""}</button>`).join("")}</div>`;
+    quickFavorites.onclick=event=>{
+      const button=event.target.closest("[data-msj-quickfood]");if(!button||loading)return;
+      const entry=recent[Number(button.dataset.msjQuickfood)];if(!entry)return;
+      origin="manual";photo=null;currentText=String(entry.food_name)+" "+(entry.quantity||entry.serving_label||"");reviewDate=date();
+      renderReview([cloneRecord(entry,entry._memoryFrom||"常吃紀錄")],"已載入你的已確認紀錄；按確認儲存才會新增餐點，不會直接重複寫入。");
+      say("已選擇常吃食物，確認份量後儲存。");
+    };
+  }
+
+  function showPackagePanel(mode) {
+    packagePanel.hidden=false;
+    const isBarcode=mode==="barcode";
+    packagePanel.innerHTML=`<div class="msj-package-heading"><strong>${isBarcode?"掃描商品條碼":"辨識營養標示"}</strong><button type="button" data-msj-close-package aria-label="關閉包裝食品工具">✕</button></div>
+      <p class="msj-smart-note">${isBarcode?"拍清楚條碼上的數字，或直接輸入 8／12／13／14 位條碼。查不到時可以改拍營養標示。":"拍清楚營養標示及品名，確認每份或每 100g 的數值；不會把不清楚的數字猜成 0。"}</p>
+      ${isBarcode?`<label class="msj-package-field">條碼數字<input id="msjPackageCode" inputmode="numeric" autocomplete="off" pattern="[0-9]*" maxlength="14" placeholder="例如：4710123456789"></label>`:""}
+      <label class="msj-package-file">📷 ${isBarcode?"拍條碼／選照片":"拍營養標示／選照片"}<input id="msjPackagePhoto" type="file" accept="image/*" aria-label="選擇包裝照片"></label>
+      <div class="msj-package-actions">${isBarcode?`<button type="button" data-msj-lookup>查詢條碼</button>`:`<button type="button" data-msj-readlabel>辨識標示</button>`}
+      <button type="button" data-msj-switch>${isBarcode?"找不到？改拍營養標示":"改查條碼"}</button></div>
+      <p class="msj-package-status" role="status" aria-live="polite"></p><div data-msj-package-result></div>`;
+    review.hidden=true;
+    const tell=message=>{const node=packagePanel.querySelector(".msj-package-status");if(node)node.textContent=message;};
+    const resultHost=packagePanel.querySelector("[data-msj-package-result]");
+    const imgInput=packagePanel.querySelector("#msjPackagePhoto");
+    const close=()=>{packagePanel.hidden=true;packagePanel.replaceChildren();};
+    packagePanel.querySelector("[data-msj-close-package]").onclick=close;
+    packagePanel.querySelector("[data-msj-switch]").onclick=()=>showPackagePanel(isBarcode?"label":"barcode");
+    const bounded=async(fn,timeout=18000)=>{
+      const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeout);
+      try{return await fn(controller.signal);}finally{clearTimeout(timer);}
+    };
+    const begin=()=>{const buttons=packagePanel.querySelectorAll("button");buttons.forEach(b=>b.disabled=true);return()=>buttons.forEach(b=>b.disabled=false);};
+    function toReview(item,note){
+      if(!item)return;
+      origin="manual";photo=null;photoInput.value="";
+      currentText=note;reviewDate=date();
+      renderReview([item],note);
+      packagePanel.hidden=true;
+      say("已帶入確認畫面，請核對食物與食用份量後儲存。");
+    }
+    function showProduct(product,code){
+      if(!product?.name){tell("商品資料不完整，請改拍營養標示。");return;}
+      const unit=product.unit==="ml"?"ml":"g";
+      const initial=Number(product.servingAmount)>0?Number(product.servingAmount):100;
+      const hasCalories=n(product.nutrients?.calories)!==null;
+      resultHost.innerHTML=`<div class="msj-package-result"><strong>${esc([product.brand,product.name].filter(Boolean).join(" · "))}</strong>
+        <small>條碼 ${esc(code)} · Open Food Facts（社群資料，請核對包裝）</small>
+        <label>這次實際吃了多少 ${unit}<input id="msjPackageAmount" type="number" inputmode="decimal" min="0.1" max="5000" step="any" value="${initial}" required></label>
+        <p>${hasCalories?`資料庫每 100 ${unit}：${nf.format(n(product.nutrients.calories))} kcal` : "資料庫沒有熱量值，建議改拍營養標示。"}</p>
+        <button type="button" data-msj-use-product>帶入飲食確認</button></div>`;
+      resultHost.querySelector("[data-msj-use-product]").onclick=()=>{
+        try {const amount=Number(resultHost.querySelector("#msjPackageAmount").value);toReview(portionFromProduct(product,amount),`掃描條碼 ${code}；商品資料來自 Open Food Facts，請核對品牌、食用量與包裝標示。`);}catch(error){tell(error.message);}
+      };
+    }
+    async function lookupCode(code){
+      const value=String(code||"").trim().replace(/\s/g,"");
+      if(!validGTIN(value)){tell("條碼數字或檢查碼有誤，請對照包裝重新輸入。");return;}
+      tell("正在查詢商品資料庫…");const restore=begin();
+      try{
+        const {data,error}=await bounded(signal=>db.functions.invoke("search-branded-foods",{body:{query:value},signal}),14500);
+        if(error)throw error;
+        if(data?.error)throw Error(data.error);
+        const match=(data?.products||[]).find(p=>p.code===value)||(data?.products||[])[0];
+        if(!match){tell("找不到這個條碼的商品。可以改拍營養標示，或使用原本的手動輸入。");return;}
+        showProduct(match,value);tell("已找到商品，請核對名稱及你吃的重量。");
+      }catch(error){tell(`商品查詢失敗：${error?.name==="AbortError"?"逾時":error.message||"服務暫時不可用"}。可改拍營養標示。`);}
+      finally{restore();}
+    }
+    if(isBarcode){
+      packagePanel.querySelector("[data-msj-lookup]").onclick=()=>lookupCode(packagePanel.querySelector("#msjPackageCode").value);
+    }
+    async function readPackagePhoto(){
+      const file=imgInput.files?.[0];if(!file){tell("請先選擇一張清楚的包裝照片。");return;}
+      tell("正在讀取照片並辨識文字…");const restore=begin();
+      try{
+        // Package labels have small print: use a larger export than ordinary meal photos.
+        const prepared=await compressedPhoto(file,1800,.88);
+        if(isBarcode&&typeof BarcodeDetector!=="undefined"){
+          try{
+            const detector=new BarcodeDetector({formats:["ean_13","ean_8","upc_a"]});
+            const frame=await createImageBitmap(prepared.file);
+            const codes=await detector.detect(frame);frame.close?.();
+            const hit=codes.map(v=>v.rawValue).find(validGTIN);
+            if(hit){packagePanel.querySelector("#msjPackageCode").value=hit;tell("已讀到條碼，請確認數字後按『查詢條碼』。");return;}
+          }catch{ /* iPhone Safari commonly has no BarcodeDetector: use photo extraction. */ }
+        }
+        const {data,error}=await bounded(signal=>db.functions.invoke("scan-food-package",{
+          body:{mode:isBarcode?"barcode":"label",imageBase64:prepared.base64,mimeType:"image/jpeg"},signal}),19500);
+        if(error)throw error;if(!data?.success)throw Error(data?.error||"標示辨識未完成");
+        if(isBarcode){
+          const found=String(data.barcode||"");
+          if(!validGTIN(found)){tell("無法可靠辨識完整條碼，請自行輸入條碼數字或改拍營養標示。");return;}
+          packagePanel.querySelector("#msjPackageCode").value=found;
+          tell(`辨識到 ${found}，請與包裝數字核對後，再按「查詢條碼」。`);
+        }else{
+          const label=data.label;
+          if(!label){tell("照片沒有清楚的營養欄位，請重新拍攝或直接使用手動輸入。");return;}
+          showLabelResult(label,data.note||"");
+        }
+      }catch(error){tell(`無法辨識：${error?.name==="AbortError"?"逾時":error.message||"服務繁忙"}。照片與手動輸入仍可保留。`);}
+      finally{restore();}
+    }
+    function showLabelResult(label,note){
+      const bases={per_serving:"每份",per_100g:"每 100g",per_100ml:"每 100ml"};
+      const basis=label.basis;
+      const known=Object.keys(bases).includes(basis);
+      const unit=basis==="per_serving"?"份":basis==="per_100ml"?"ml":"g";
+      const amount=basis==="per_serving"?1:100;
+      const baseNutrition=label.nutrition||{};
+      resultHost.innerHTML=`<div class="msj-package-result"><strong>請核對包裝營養標示</strong>
+        <label>商品名稱<input data-msj-label-name value="${esc(label.product_name||"")}" placeholder="輸入商品名稱"></label>
+        <label>請確認包裝上的數值基準<select data-msj-label-basis>
+          <option value="">請選擇清楚的標示欄位</option>
+          ${Object.entries(bases).map(([key,name])=>`<option value="${key}" ${basis===key?"selected":""}>${name}</option>`).join("")}
+        </select></label>
+        ${label.serving_size?`<p>包裝標示每份：${esc(label.serving_size)}</p>`:""}
+        ${!known?`<p class="msj-package-warning">辨識不到數值基準，請依照片確認「每份／每 100g／每 100ml」再選擇。無法確認就重拍。</p>`:""}
+        <div class="msj-package-nutrient-grid">${fields.map(key=>`<label>${esc(labels[key])}（<span data-msj-label-basis-name>${esc(bases[basis]||"基準不明")}</span>）<input data-msj-label-key="${key}" type="number" min="0" step="any" placeholder="未辨識" value="${esc(n(baseNutrition[key])??"")}"></label>`).join("")}</div>
+        <label>這次吃了多少 <span data-msj-label-unit>${unit}</span><input id="msjLabelAmount" type="number" inputmode="decimal" min="0.1" step="any" value="${amount}"></label>
+        <p class="msj-smart-note">${esc(note||"僅使用照片可讀取的數字，不清楚留空。請與包裝實際標示核對。")}</p>
+        <button type="button" data-msj-use-label ${known?"":"disabled"}>帶入飲食確認</button></div>`;
+      resultHost.querySelector("[data-msj-use-label]").onclick=()=>{
+        try{
+          const productName=resultHost.querySelector("[data-msj-label-name]").value.trim();
+          if(!productName){tell("請先輸入商品名稱。");return;}
+          const edited=Object.fromEntries([...resultHost.querySelectorAll("[data-msj-label-key]")].map(input=>[input.dataset.msjLabelKey,n(input.value)]));
+          const selectedBasis=resultHost.querySelector("[data-msj-label-basis]").value;
+          const item=portionFromLabel({...label,product_name:productName,basis:selectedBasis},resultHost.querySelector("#msjLabelAmount").value,edited);
+          toReview(item,`營養標示辨識：${productName}；原始欄位 ${bases[selectedBasis]}。請依包裝與實際吃的份量核對。`);
+        }catch(error){tell(error.message);}
+      };
+      resultHost.querySelector("[data-msj-label-basis]").onchange=event=>{
+        const updatedBasis=event.target.value;
+        const labelUnit=updatedBasis==="per_serving"?"份":updatedBasis==="per_100ml"?"ml":"g";
+        resultHost.querySelector("[data-msj-label-unit]").textContent=labelUnit;
+        resultHost.querySelector("#msjLabelAmount").value=updatedBasis==="per_serving"?1:100;
+        resultHost.querySelectorAll("[data-msj-label-basis-name]").forEach(el=>el.textContent=bases[updatedBasis]||"基準不明");
+        resultHost.querySelector("[data-msj-use-label]").disabled=!updatedBasis;
+      };
+      tell(known?"已辨識營養欄位，請確認原始數字與實際食用份量。":"營養標示計量基準不清楚；請依包裝選擇正確基準，或重拍照片。");
+    }
+    if(!isBarcode){packagePanel.querySelector("[data-msj-readlabel]").onclick=readPackagePhoto;}
+    imgInput.onchange=()=>{
+      if(!imgInput.files?.length)return;
+      tell("已選擇包裝照片。"+(isBarcode?"請按下『辨識條碼』。":"請按下『辨識標示』。"));
+      if(isBarcode){readPackagePhoto();}
+    };
+  }
+  host.querySelectorAll("[data-msj-package]").forEach(button=>{
+    button.onclick=()=>showPackagePanel(button.dataset.msjPackage);
+  });
 
   function renderReview(items, note) {
     parsed = items.map(item => ({...item}));
@@ -351,7 +565,7 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
         serving_weight_g:n(value("serving_weight_g")),
         ...Object.fromEntries(fields.map(key => [key, n(value(key))])),
         nutrition_source:row.dataset.smartEstimate === "manual" || row.dataset.smartEstimate === "needs-review" ? "manual" :
-          ["scaled", "reestimated"].includes(row.dataset.smartEstimate) ? "ai_estimate" :
+          row.dataset.smartEstimate === "reestimated" ? "ai_estimate" :
           (parsed[Number(row.dataset.smartIndex)]?.nutrition_source || "manual"),
         confidence:["scaled", "manual"].includes(row.dataset.smartEstimate) ? "medium" :
           row.dataset.smartEstimate === "needs-review" ? "low" :
@@ -556,4 +770,4 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
 
 // 供簡易單元測試使用：不暴露使用者資料。
 export const __test = { commonPortion, localInterpret, splitFoods, identifyMemory, sharingContext,
-  servingParts, servingRatio, recalculateServing, portionGramEstimate };
+  servingParts, servingRatio, recalculateServing, portionGramEstimate, validGTIN, portionFromProduct, portionFromLabel };

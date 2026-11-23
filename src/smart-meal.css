@@ -51,3 +51,33 @@
 .msj-smart-review-actions button{min-width:calc(50% - 8px)}
 .msj-smart-review-actions .msj-smart-save{flex-basis:100%;order:3}
 @media(max-width:390px){.msj-smart-review-actions button{min-width:0}.msj-smart-review-actions .msj-smart-save{flex-basis:auto}}
+
+/* 包裝食品：條碼、營養標示、常吃快捷紀錄（iPhone 最少 44px 點擊範圍） */
+.msj-smart-package-actions{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 0}
+.msj-smart-package-actions button{flex:1;min-width:120px;min-height:44px;border:1px solid #dfd1db;border-radius:12px;color:#665066;background:#fff;padding:10px 12px;font-size:13px;font-weight:700;cursor:pointer}
+.msj-smart-package-actions button:focus-visible,.msj-package-panel button:focus-visible,.msj-quick-favorites button:focus-visible{outline:2px solid #a28aad;outline-offset:2px}
+.msj-package-panel{margin:12px 0 0;border:1px solid #dfd4df;border-radius:16px;background:#fff;padding:14px;display:grid;gap:10px}
+.msj-package-panel[hidden]{display:none}
+.msj-package-heading{display:flex;justify-content:space-between;align-items:center;gap:10px;color:#5c4959}
+.msj-package-heading>button{background:#f6f0f4;color:#766273;border:0;border-radius:12px;min-width:40px;min-height:40px;font-size:18px}
+.msj-package-field,.msj-package-result label{display:grid;gap:6px;color:#715e6d;font-size:12px}
+.msj-package-field input,.msj-package-result input{width:100%;min-height:44px;padding:10px;border:1px solid #e5dbe3;border-radius:11px;background:#fff;font-size:16px;color:#55464f;box-sizing:border-box}
+.msj-package-file{position:relative;display:inline-flex;gap:6px;align-items:center;justify-content:center;padding:10px;background:#f5eff4;border:1px dashed #dac7d8;border-radius:12px;color:#665066;font-weight:700;font-size:13px;min-height:44px;cursor:pointer}
+.msj-package-file input{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden}
+.msj-package-actions{display:flex;gap:8px;flex-wrap:wrap}
+.msj-package-actions button,.msj-package-result button{flex:1;min-height:44px;min-width:105px;padding:10px 12px;border:1px solid #ded0d9;border-radius:11px;background:#6b5469;color:white;font-size:13px;font-weight:700;cursor:pointer}
+.msj-package-actions button+button{background:#f8f3f7;color:#71586c}
+.msj-package-actions button:disabled,.msj-package-result button:disabled{opacity:.55;cursor:not-allowed}
+.msj-package-status{margin:0;color:#766674;font-size:12px;line-height:1.55}
+.msj-package-result{border-top:1px solid #eee5ec;padding-top:12px;display:grid;gap:10px}
+.msj-package-result strong{font-size:14px;color:#5a4757}
+.msj-package-result small{font-size:11px;color:#827180}
+.msj-package-result p{margin:0;font-size:12px;line-height:1.55;color:#796977}
+.msj-package-warning{padding:10px;background:#fff8ed;color:#805d33!important;border-radius:10px}
+.msj-package-nutrient-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.msj-quick-favorites{margin-top:12px;display:grid;gap:7px}
+.msj-quick-favorites[hidden]{display:none}
+.msj-quick-favorites>small{font-size:12px;color:#85717f}
+.msj-quick-favorites>div{display:flex;gap:7px;overflow:auto;padding:2px 0 5px;scroll-snap-type:x proximity}
+.msj-quick-favorites button{white-space:nowrap;scroll-snap-align:start;border:1px solid #e6d7e1;border-radius:99px;background:#fff;color:#6f536b;font-size:12px;min-height:44px;padding:9px 13px;cursor:pointer}
+@media(max-width:390px){.msj-package-panel{padding:12px}.msj-package-nutrient-grid{grid-template-columns:1fr}.msj-smart-package-actions button{min-width:0}.msj-package-actions button{min-width:0}}
