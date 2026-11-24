@@ -33,3 +33,14 @@
 .msj-activity-dedupe-notice{font-size:12px;line-height:1.5;color:#856d7e;background:#f9f4f7;padding:10px 12px;border-radius:12px;margin:10px 0}
 @media(max-width:380px){.msj-quick-title{align-items:flex-start;flex-direction:column;gap:4px}.msj-quick-grid{gap:6px}.msj-quick-grid button{padding:11px 4px;min-height:86px}.msj-quick-grid button b{font-size:12px}.msj-home-meal-energy{font-size:11px}}
 @media(prefers-reduced-motion:reduce){.msj-quick-grid button{transition:none}}
+
+/* Unified meal picker: recent breakfasts, lunches, dinners and favorites. */
+.msj-quick-picker h4{font-size:13px;color:#725b6d;margin:4px 0 0;font-weight:750}
+.msj-quick-pick-list{display:grid;gap:7px;max-height:175px;overflow-y:auto;overscroll-behavior:contain}
+.msj-quick-pick-list>button{display:flex;flex-direction:column;align-items:stretch;gap:3px;text-align:left;padding:11px 13px;min-height:54px;background:#faf5f7;border:1px solid #f0e3e9;border-radius:13px;color:#614e59;box-shadow:none}
+.msj-quick-pick-list>button b{font-size:13px}.msj-quick-pick-list>button b small{font-size:11px;color:#a38d99;font-weight:500;margin-left:5px}
+.msj-quick-pick-list>button span{font-size:12px;color:#9a858d;line-height:1.5;overflow-wrap:anywhere}
+.msj-quick-pick-list>p{font-size:12px;margin:4px 0;color:#a18c93}
+.msj-quick-pick-list>button:focus-visible{outline:3px solid #bea3b5;outline-offset:2px}
+.msj-quick-form select{min-height:44px;padding:9px 12px;border:1px solid #e9dde2;border-radius:12px;background:#fff;color:#55424b;font-size:16px}
+.msj-quick-buttons [data-quick-new]{background:#72566d;color:#fff}

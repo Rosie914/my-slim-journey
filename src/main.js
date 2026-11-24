@@ -651,7 +651,7 @@ function renderHomeEnergyPlan(goal, recordedActivity, date) {
   return `<section class="card msj-activity-card msj-activity-compact">
     <div class="msj-activity-heading">
       <div><h2>每日活動</h2><p>${dayLabel} · ${sourceText}</p></div>
-      <div class="msj-activity-actions"><button type="button" id="homeHealthShortcut" class="home-shortcut" aria-label="執行 Apple Health Sync 捷徑">同步健康</button><button type="button" id="homeHealthRefresh" class="home-refresh" aria-label="重新讀取已同步資料">↻ 更新</button></div>
+      <div class="msj-activity-actions"><button type="button" id="homeHealthShortcut" class="home-shortcut" aria-label="執行 Find Health Samples Where 捷徑">同步健康</button><button type="button" id="homeHealthRefresh" class="home-refresh" aria-label="重新讀取已同步資料">↻ 更新</button></div>
     </div>
     <div class="msj-activity-step-tile"><div><small>${isToday ? "今日步數" : "當日步數"}</small><strong>${steps}</strong></div><span>Apple 健康</span></div>
     <div class="msj-activity-progress-title"><strong>${isHealth ? "全天活動熱量" : "已記錄運動消耗"}</strong><span>${percent === null ? "尚無紀錄" : percent + "%"}</span></div>
@@ -899,17 +899,17 @@ function renderAppShell(content) {
       <details class="account-data"><summary>資料備份</summary><p>下載你的個人設定、目標階段、飲食、體重、運動與常吃食物紀錄。照片檔案不包含在備份中。</p><button id="exportData" type="button">下載我的資料</button><p id="exportStatus" role="status" aria-live="polite"></p></details>
       <details class="account-data health-sync" id="healthSyncPanel"><summary>Apple 健康自動同步</summary>
         <p>網站不能直接讀取 iPhone「健康」資料。完成捷徑設定後，可同步每日步數、活動熱量與運動項目；資料會寫入你的運動紀錄。</p>
-        <p class="health-sync-notice"><strong>目前進度：</strong>每日步數已同步。Apple 健康活動熱量與捷徑運動項目尚未完整同步；沿用「Apple Health Sync」即可，不必刪除、改名或建立副本。</p>
-        <ol><li>先按下方按鈕建立同步金鑰並複製保存。金鑰只顯示一次；不要貼到聊天或分享給別人。</li><li>依照下方步驟修改現有的 <code>Apple Health Sync</code>：保留步數查詢，移除 7 天加總，改為逐日清單並加入上傳。</li><li>手動執行後，只有看到 <code>ok: true</code> 且本頁出現「最近成功同步」，才算完成；之後再設定每日自動化。</li></ol>
+        <p class="health-sync-notice"><strong>目前進度：</strong>每日步數已同步。Apple 健康活動熱量與捷徑運動項目尚未完整同步；沿用「Find Health Samples Where」即可，不必刪除、改名或建立副本。</p>
+        <ol><li>先按下方按鈕建立同步金鑰並複製保存。金鑰只顯示一次；不要貼到聊天或分享給別人。</li><li>依照下方步驟修改現有的 <code>Find Health Samples Where</code>：保留步數查詢，移除 7 天加總，改為逐日清單並加入上傳。</li><li>手動執行後，只有看到 <code>ok: true</code> 且本頁出現「最近成功同步」，才算完成；之後再設定每日自動化。</li></ol>
         <section class="health-sync-automation" aria-label="自動同步與一鍵同步設定">
           <h3>一鍵同步與定時自動化</h3>
-          <p>先確認現有 <code>Apple Health Sync</code> 捷徑能成功上傳，再設定自動化。以下操作不會自動建立 iPhone 自動化。</p>
-          <button type="button" id="settingsHealthShortcut" class="health-shortcut-launch">開啟 Apple Health Sync 捷徑</button>
+          <p>先確認現有 <code>Find Health Samples Where</code> 捷徑能成功上傳，再設定自動化。以下操作不會自動建立 iPhone 自動化。</p>
+          <button type="button" id="settingsHealthShortcut" class="health-shortcut-launch">開啟 Find Health Samples Where 捷徑</button>
           <p id="settingsShortcutStatus" role="status" aria-live="polite"></p>
           <ol>
             <li>開啟 iPhone「捷徑」App →「自動化」→「＋」→「特定時間」。</li>
             <li>設定每天 <strong>08:00</strong>、<strong>12:30</strong>、<strong>20:30</strong> 各一個自動化（時間可自行調整）。</li>
-            <li>選擇「立即執行」（若系統提供），加入「執行捷徑」動作，指定既有的 <code>Apple Health Sync</code>。</li>
+            <li>選擇「立即執行」（若系統提供），加入「執行捷徑」動作，指定既有的 <code>Find Health Samples Where</code>。</li>
             <li>第一次執行請允許「健康」讀取與網路存取權限。回到 App 按「更新」檢查同步時間和步數。</li>
           </ol>
           <p>iOS 版本、裝置鎖定及健康權限可能影響是否能無提示執行；若自動化失敗，請先手動執行捷徑排除問題。每日定時同步不是即時同步。</p>
@@ -920,7 +920,7 @@ function renderAppShell(content) {
         <details class="health-sync-guide"><summary>先同步步數：iPhone 捷徑步驟</summary>
           <ol>
             <li>在本頁按「建立捷徑同步金鑰」，點「複製金鑰」。這串金鑰等下放進捷徑，不要貼到聊天。</li>
-            <li>在 Shortcuts 打開既有的 <code>Apple Health Sync</code>。沿用這個名稱和捷徑，不要刪除或另建副本。保留 <code>Find Health Samples</code>：<code>Type is Steps</code>、<code>Start Date is in the last 7 days</code>、<code>Group by Day</code>；刪除 <code>Calculate the Sum</code>，因為它會把 7 天合成一個總數。</li>
+            <li>在 Shortcuts 打開既有的 <code>Find Health Samples Where</code>。沿用這個名稱和捷徑，不要刪除或另建副本。保留 <code>Find Health Samples</code>：<code>Type is Steps</code>、<code>Start Date is in the last 7 days</code>、<code>Group by Day</code>；刪除 <code>Calculate the Sum</code>，因為它會把 7 天合成一個總數。</li>
             <li>在 <code>Find Health Samples</code> 上方加入空的 <code>List</code>，再加入 <code>Set Variable</code>，命名為 <code>Days</code>，將空清單存入它。把這兩個動作移到查詢步數之前。</li>
             <li>在查詢步數後加入 <code>Repeat with Each</code>，輸入選 <code>Health Samples</code>。在 Repeat 內依序加入：<code>Get Details of Health Sample</code>（選 <code>Start Date</code>，來源 <code>Repeat Item</code>）；<code>Format Date</code>（日期格式 <code>Custom</code>，格式填 <code>yyyy-MM-dd</code>）；再加入 <code>Get Details of Health Sample</code>（選 <code>Value</code>，來源仍是 <code>Repeat Item</code>）。</li>
             <li>仍在 Repeat 內加入 <code>Dictionary</code>，建立 <code>date</code>＝格式化日期、<code>steps</code>＝步數 Value；再加入 <code>Add to Variable</code>，選 <code>Days</code>。Repeat 結束後，<code>Quick Look</code> 檢查 Days，應是一日一筆的字典清單。</li>
@@ -1137,9 +1137,9 @@ async function showApp() {
   shortcutLaunch.forEach(button => {
     button.onclick = () => {
       const status = app.querySelector("#settingsShortcutStatus") || app.querySelector("#homeHealthStatus");
-      if (status) status.textContent = "正在開啟 Apple Health Sync。捷徑執行完成後，返回此 App 會重新讀取資料；若沒有自動更新，請按「更新」。";
+      if (status) status.textContent = "正在開啟 Find Health Samples Where。捷徑執行完成後，返回此 App 會重新讀取資料；若沒有自動更新，請按「更新」。";
       window.__msjAwaitingShortcutReturn = true;
-      window.location.href = "shortcuts://run-shortcut?name=Apple%20Health%20Sync";
+      window.location.href = "shortcuts://run-shortcut?name=Find%20Health%20Samples%20Where";
     };
   });
   const homeHealthRefresh = app.querySelector("#homeHealthRefresh");

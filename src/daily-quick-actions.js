@@ -1,6 +1,7 @@
 import {summarizeDay,shiftDate} from './activity-dedupe.js';
 
 const h = v => String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+const mealTypes={breakfast:'早餐',lunch:'午餐',dinner:'晚餐',snack:'點心',other:'其他'};
 const mealFields=['food_name','quantity','serving_weight_g','nutrition_source','confidence','calories','protein_g','carbs_g','fat_g','fiber_g','sugar_g','sodium_mg'];
 const today = () => new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 const start = day => new Date(`${day}T00:00:00+08:00`).toISOString();
@@ -23,7 +24,7 @@ export function mountDailyQuickActions({db,uid,selectedDate,onSaved,goWeight}) {
   let host=home.querySelector('#msjDailyQuick');if(host)return;
   host=document.createElement('section');host.id='msjDailyQuick';host.className='card msj-daily-quick';
   host.innerHTML=`<div class="msj-quick-title"><h2>快速記錄</h2><small>今天吃過的、做過的，少打幾個字</small></div>
-    <div class="msj-quick-grid"><button type="button" data-quick="breakfast"><span aria-hidden="true">🥐</span><b>常吃早餐</b><small>複製最近早餐</small></button>
+    <div class="msj-quick-grid"><button type="button" data-quick="meal"><span aria-hidden="true">🥐</span><b>記錄飲食</b><small>最近／常吃食物</small></button>
     <button type="button" data-quick="workout"><span aria-hidden="true">♡</span><b>最近運動</b><small>再記錄一次</small></button>
     <button type="button" data-quick="weight"><span aria-hidden="true">⚖</span><b>記錄體重</b><small>立即填寫</small></button></div>
     <p class="msj-quick-hint">快速複製前會確認日期與內容，不會直接重複新增。</p>`;
@@ -34,38 +35,112 @@ export function mountDailyQuickActions({db,uid,selectedDate,onSaved,goWeight}) {
     if(button.dataset.quick==='weight'){goWeight?.();return;}
     busy=true;button.disabled=true;
     try{
-      if(button.dataset.quick==='breakfast')await previewBreakfast();
+      if(button.dataset.quick==='meal')await previewMeals();
       else if(button.dataset.quick==='workout')await previewWorkout();
     }catch(error){showError(error?.message||'讀取失敗，請重試。');}
     finally{busy=false;button.disabled=false;}
   });
   function showError(message){const note=host.querySelector('.msj-quick-hint');if(note)note.textContent=message;}
-  async function previewBreakfast(){
-    // Exact user and meal type; never use future planned meals as today's intake.
-    const rows=await ensureRows(db.from('meals').select('id,meal_type,eaten_at,source,meal_items(*)')
-      .eq('user_id',uid).eq('meal_type','breakfast').lt('eaten_at',start(selectedDate)).order('eaten_at',{ascending:false}).limit(35));
-    const chosen=rows.find(row=>row.source!=='planned'&&row.meal_items?.length);
-    if(!chosen){showError('先記錄一筆早餐，之後就能在這裡快速複製。');return;}
-    const foods=chosen.meal_items.map(item=>({name:item.food_name,kcal:amount(item.calories),quantity:item.quantity}));
-    const sourceDay=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(chosen.eaten_at));
+  async function previewMeals(){
+    // One food entry point for all meal types: history and user-curated favorites.
+    // Never silently record a planned or future meal as food already eaten.
+    const [recentResult,favoritesResult]=await Promise.allSettled([
+      ensureRows(db.from('meals').select('id,meal_type,eaten_at,source,meal_items(*)')
+        .eq('user_id',uid).lt('eaten_at',end(selectedDate)).order('eaten_at',{ascending:false}).limit(60)),
+      ensureRows(db.from('user_favorite_foods').select('id,food_name,serving_label,serving_weight_g,nutrition_source,calories,protein_g,carbs_g,fat_g,fiber_g,sugar_g,sodium_mg,updated_at')
+        .eq('user_id',uid).order('updated_at',{ascending:false}).limit(18))
+    ]);
+    if(recentResult.status==='rejected'&&favoritesResult.status==='rejected')
+      throw new Error('最近餐點及常吃食物暫時無法載入，請到飲食頁記錄。');
+    const recent=(recentResult.status==='fulfilled'?recentResult.value:[])
+      .filter(row=>row.source!=='planned'&&row.meal_items?.length).slice(0,12);
+    const favorites=(favoritesResult.status==='fulfilled'?favoritesResult.value:[]).slice(0,12);
+    const dayOf=value=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(value));
+    const foodsFor=row=>row.meal_items.map(item=>item.food_name).filter(Boolean).join('、')||'餐點';
+    const suggestedType=()=>{const hour=Number(timeNow().slice(0,2));return hour<11?'breakfast':hour<15?'lunch':hour<21?'dinner':'snack';};
     const dlg=dialogHost();
-    showDialog(dlg,`<form class="msj-quick-form"><h3>複製常吃早餐</h3><p>來源：${h(sourceDay)} · 新增到 ${h(selectedDate)}</p>
-      <ul>${foods.map(food=>`<li>${h(food.name)}${food.quantity?` · ${h(food.quantity)}`:''}<small>${pretty(food.kcal,' kcal')}</small></li>`).join('')}</ul>
-      <label>用餐時間<input name="meal_time" type="time" value="${selectedDate===today()?timeNow():'08:00'}" required></label>
-      <p class="msj-quick-hint">原本的早餐不會刪除。確認後新增一筆。</p>
-      <div class="msj-quick-buttons"><button type="button" data-quick-cancel>取消</button><button type="submit">確認新增</button></div><p data-quick-status role="status"></p></form>`);
-    const form=dlg.querySelector('form');form.onsubmit=async ev=>{
-      ev.preventDefault();const submit=form.querySelector('[type=submit]');submit.disabled=true;
-      try{
-        const existing=await ensureRows(db.from('meals').select('id').eq('user_id',uid).eq('meal_type','breakfast').gte('eaten_at',start(selectedDate)).lt('eaten_at',end(selectedDate)).limit(1));
-        if(existing.length&&!confirm(`${selectedDate} 已經有早餐紀錄，仍要再新增一筆嗎？`)){submit.disabled=false;return;}
-        const when=new Date(`${selectedDate}T${form.elements.meal_time.value}:00+08:00`).toISOString();
-        const payload={meal_type:'breakfast',source:selectedDate>today()?'planned':'manual',eaten_at:when,
-          notes:`快速複製 ${sourceDay} 早餐`,items:chosen.meal_items.map(item=>Object.fromEntries(mealFields.map(key=>[key,item[key]??null])))};
-        status(dlg,'儲存中…');const {error}=await db.rpc('save_meals_with_items',{p_meals:[payload]});if(error)throw error;
-        dlg.close();await onSaved?.();
-      }catch(error){status(dlg,`儲存失敗：${error.message||'請重試'}`);submit.disabled=false;}
-    };
+    showDialog(dlg,`<div class="msj-quick-form msj-quick-picker">
+      <h3>快速記錄飲食</h3><p>選擇之前吃過的餐點，或從常吃食物加入。日期：${h(selectedDate)}</p>
+      <h4>最近餐點</h4>
+      <div class="msj-quick-pick-list">${recent.length?recent.map((m,i)=>`<button type="button" data-meal-reuse="${i}">
+        <b>${h(mealTypes[m.meal_type]||'餐點')} <small>${h(dayOf(m.eaten_at))}</small></b>
+        <span>${h(foodsFor(m))}</span></button>`).join(''):'<p>尚無可複製的歷史餐點。</p>'}</div>
+      <h4>常吃食物</h4>
+      <div class="msj-quick-pick-list">${favorites.length?favorites.map((item,i)=>`<button type="button" data-favorite-reuse="${i}">
+        <b>${h(item.food_name)}</b><span>${h(item.serving_label||'原紀錄份量')} · ${pretty(amount(item.calories),' kcal')}</span></button>`).join(''):'<p>尚未收藏常吃食物，之後可從飲食頁收藏。</p>'}</div>
+      <div class="msj-quick-buttons"><button type="button" data-quick-cancel>取消</button><button type="button" data-quick-new>新增其他飲食</button></div>
+      <p class="msj-quick-hint">選擇後可改餐別、用餐時間及整筆份量。必須確認才會儲存。</p></div>`);
+    dlg.addEventListener('click',ev=>{
+      if(ev.target.closest('[data-quick-cancel]')){dlg.close();return;}
+      if(ev.target.closest('[data-quick-new]')){
+        dlg.close();home.querySelector('[data-tab="meals"]')?.click();return;
+      }
+      const mealButton=ev.target.closest('[data-meal-reuse]');
+      if(mealButton){
+        const chosen=recent[Number(mealButton.dataset.mealReuse)];
+        showMealConfirmation(chosen.meal_items,chosen.meal_type,`來源：${dayOf(chosen.eaten_at)} ${mealTypes[chosen.meal_type]||'餐點'}`);
+        return;
+      }
+      const favoriteButton=ev.target.closest('[data-favorite-reuse]');
+      if(favoriteButton){
+        const favorite=favorites[Number(favoriteButton.dataset.favoriteReuse)];
+        const item={...favorite,quantity:favorite.serving_label||'1 份',nutrition_source:favorite.nutrition_source||'favorite'};
+        showMealConfirmation([item],suggestedType(),`常吃食物：${favorite.food_name}`);
+      }
+    });
+    function showMealConfirmation(originals,defaultType,origin){
+      const selectedItems=originals.map(item=>Object.fromEntries(mealFields.map(key=>[key,item[key]??null])));
+      const kind=mealTypes[defaultType]?defaultType:'other';
+      const defaultHour={breakfast:'08:00',lunch:'12:00',dinner:'19:00',snack:'15:00',other:'12:00'};
+      const foodList=selectedItems.map(item=>`<li>${h(item.food_name||'食物')}${item.quantity?` · ${h(item.quantity)}`:''}<small>${pretty(amount(item.calories),' kcal')}</small></li>`).join('');
+      dlg.innerHTML=`<form class="msj-quick-form"><h3>確認快速記錄</h3><p>${h(origin)} · 新增到 ${h(selectedDate)}</p>
+        <ul>${foodList}</ul><label>這次記成哪一餐？<select name="meal_type" required>${Object.entries(mealTypes).map(([value,label])=>`<option value="${value}" ${kind===value?'selected':''}>${label}</option>`).join('')}</select></label>
+        <label>用餐時間<input name="meal_time" type="time" value="${selectedDate===today()?timeNow():defaultHour[kind]}" required></label>
+        <label>整筆份量倍率（1 = 原份量；0.5 = 半份）<input name="portion_factor" type="number" min="0.1" max="5" step="0.1" value="1" required></label>
+        <p class="msj-quick-hint" data-portion-preview>熱量及營養維持原紀錄，若食物份量不同請調整。</p>
+        <div class="msj-quick-buttons"><button type="button" data-quick-cancel>取消</button><button type="submit">確認新增</button></div>
+        <p data-quick-status role="status"></p></form>`;
+      const form=dlg.querySelector('form');
+      const factorEl=form.elements.portion_factor;
+      const formatPreview=()=>{
+        const factor=Number(factorEl.value),known=selectedItems.every(item=>amount(item.calories)!==null);
+        const kcal=known?selectedItems.reduce((sum,item)=>sum+Number(item.calories),0)*factor:null;
+        form.querySelector('[data-portion-preview]').textContent=
+          Number.isFinite(factor)&&factor>=.1&&factor<=5
+            ? `本次約 ${pretty(kcal,' kcal')}（倍率 ${factor}；缺失營養資料不補 0）。整筆按相同比例調整。`
+            : '請輸入 0.1～5 之間的份量倍率。';
+      };
+      factorEl.addEventListener('input',formatPreview);formatPreview();
+      form.addEventListener('submit',async ev=>{
+        ev.preventDefault();const submit=form.querySelector('[type=submit]');submit.disabled=true;
+        try{
+          const mealType=form.elements.meal_type.value;
+          if(!mealTypes[mealType])throw new Error('請選擇正確餐別。');
+          const factor=Number(factorEl.value);
+          if(!(factor>=.1&&factor<=5))throw new Error('請確認份量倍率在 0.1～5 之間。');
+          const existing=await ensureRows(db.from('meals').select('id').eq('user_id',uid)
+            .eq('meal_type',mealType).gte('eaten_at',start(selectedDate)).lt('eaten_at',end(selectedDate)).limit(1));
+          if(existing.length&&!confirm(`${selectedDate} 已經有${mealTypes[mealType]}紀錄，仍要再新增一筆嗎？`)){
+            submit.disabled=false;return;
+          }
+          const items=selectedItems.map(item=>{
+            const out={...item};
+            if(factor!==1){
+              for(const field of ['calories','protein_g','carbs_g','fat_g','fiber_g','sugar_g','sodium_mg','serving_weight_g']){
+                if(out[field]!==null&&Number.isFinite(Number(out[field])))out[field]=Math.round(Number(out[field])*factor*100)/100;
+              }
+              out.quantity=`${item.quantity||'原份量'} × ${factor}`;
+            }
+            return out;
+          });
+          const when=new Date(`${selectedDate}T${form.elements.meal_time.value}:00+08:00`).toISOString();
+          const payload={meal_type:mealType,source:selectedDate>today()?'planned':'manual',eaten_at:when,
+            notes:`快速記錄｜${origin}${factor!==1?`｜份量 × ${factor}`:''}`,items};
+          status(dlg,'儲存中…');const {error}=await db.rpc('save_meals_with_items',{p_meals:[payload]});if(error)throw error;
+          dlg.close();await onSaved?.();
+        }catch(error){status(dlg,`儲存失敗：${error.message||'請重試'}`);submit.disabled=false;}
+      });
+    }
   }
   async function previewWorkout(){
     const rows=await ensureRows(db.from('activity_logs').select('id,activity_type,duration_minutes,calories_burned,steps,logged_at,notes')
