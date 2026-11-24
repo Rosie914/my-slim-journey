@@ -81,3 +81,9 @@
 .msj-quick-favorites>div{display:flex;gap:7px;overflow:auto;padding:2px 0 5px;scroll-snap-type:x proximity}
 .msj-quick-favorites button{white-space:nowrap;scroll-snap-align:start;border:1px solid #e6d7e1;border-radius:99px;background:#fff;color:#6f536b;font-size:12px;min-height:44px;padding:9px 13px;cursor:pointer}
 @media(max-width:390px){.msj-package-panel{padding:12px}.msj-package-nutrient-grid{grid-template-columns:1fr}.msj-smart-package-actions button{min-width:0}.msj-package-actions button{min-width:0}}
+
+/* AI reliability: quiet, privacy-preserving error diagnostics; no prompts/tokens stored. */
+.msj-ai-issues{margin-top:12px;padding:11px 13px;border-radius:14px;border:1px solid #ece2e8;background:#fbf6f8;color:#806d79}
+.msj-ai-issues summary{font-size:12px;font-weight:650;cursor:pointer;min-height:24px}
+.msj-ai-issues [data-ai-issue-list]{margin-top:10px;display:grid;gap:5px}
+.msj-ai-issues p{font-size:11px;line-height:1.5;margin:0;padding:4px 0;border-bottom:1px solid #f0e7eb}

@@ -1,3 +1,5 @@
+import {summarizeDailyMap} from "./activity-dedupe.js";
+import {mountDailyQuickActions,openMealGroupAfterRender,mountActivityDedupeView} from "./daily-quick-actions.js";
 import "./activity-compact.css";
 import "./coach-deficit.css";
 import { mountCoachDeficit } from "./coach-deficit.js";
@@ -22,6 +24,7 @@ import "./ui-phase3.css";
 import "./ui-shortcut-sync.css";
 import "./home-activity.css";
 import "./trend-charts.css";
+import "./daily-quick-actions.css";
 import { trendLineChart, goalProgress, mountWeightTrends } from "./trend-charts.js";
 
 const supabase = createClient(
@@ -66,6 +69,7 @@ const appTabs = ["home", "meals", "activity", "weight", "reports", "coach", "set
 const savedTab = localStorage.getItem("msj-current-tab");
 let currentTab = appTabs.includes(savedTab) ? savedTab : "home";
 let diarySelection = null;
+let mealDeepLink = null;
 let overviewDate = null;
 let profile = null;
 let stages = [];
@@ -605,44 +609,17 @@ async function loadHomeActivityCalories(userId, date) {
   const pageSize = 500;
   for (let offset = 0; ; offset += pageSize) {
     const { data, error } = await supabase.from("activity_logs")
-      .select("activity_type,calories_burned,steps,logged_at")
+      .select("id,activity_type,calories_burned,steps,duration_minutes,logged_at,notes,created_at")
       .eq("user_id", userId).gte("logged_at", from).lt("logged_at", to)
-      .order("id").range(offset, offset + pageSize - 1);
+      .order("logged_at").range(offset, offset + pageSize - 1);
     if (error) throw error;
     entries.push(...(data || []));
     if ((data || []).length < pageSize) break;
   }
-  const days = new Map();
-  for (const entry of entries) {
-    const day = homeDate.format(new Date(entry.logged_at));
-    const row = days.get(day) || { calories: null, steps: null, workoutSteps: 0, hasWorkoutSteps: false, workoutCalories: 0, hasWorkoutCalories: false, source: null };
-    if (entry.activity_type === "Apple 健康每日摘要") {
-      if (entry.calories_burned != null && Number.isFinite(Number(entry.calories_burned)))
-        row.calories = Math.max(0, Number(entry.calories_burned));
-      if (row.calories !== null) row.source = "health";
-      if (entry.steps != null && Number.isFinite(Number(entry.steps)))
-        row.steps = Math.max(0, Number(entry.steps));
-    } else {
-      if (entry.steps != null && Number.isFinite(Number(entry.steps))) {
-        row.workoutSteps += Math.max(0, Number(entry.steps));
-        row.hasWorkoutSteps = true;
-      }
-      if (entry.calories_burned != null && Number.isFinite(Number(entry.calories_burned))) {
-        row.workoutCalories += Math.max(0, Number(entry.calories_burned));
-        row.hasWorkoutCalories = true;
-      }
-    }
-    days.set(day, row);
-  }
-  for (const row of days.values()) {
-    if (row.steps === null && row.hasWorkoutSteps) row.steps = row.workoutSteps;
-    if (row.calories === null && row.hasWorkoutCalories) {
-      row.calories = row.workoutCalories;
-      row.source = "workout";
-    }
-  }
-  // Health Move energy already includes exercise. Never add workout calories again.
-  return { ...(days.get(date) || { calories: null, steps: null }), days };
+  // Summary Move calories already include exercise. When no summary exists,
+  // use de-duplicated workouts only. Never add both together.
+  const days = summarizeDailyMap(entries);
+  return { ...(days.get(date) || { calories: null, steps: null, source: null }), days };
 }
 
 function homeActivityTarget(goal) {
@@ -844,9 +821,10 @@ function renderHome(meals, weights, date, weightTrend, recordedActivity, fats, f
   }
   const mealRows = Object.entries(mealLabels).filter(([type]) => groups.has(type)).map(([type, label]) => {
     const group = groups.get(type);
-    return `<li class="home-row"><div><strong>${label}</strong><p>${[...group.names].map(escapeHTML).join("、")}</p>
-      ${group.missing.size ? `<small class="home-missing">待補：${[...group.missing].join("、")}</small>` : ""}</div>
-      <b>${group.caloriesComplete ? homeNumber.format(Math.round(group.calories)) + " kcal" : "熱量資料不完整"}</b></li>`;
+    return `<li class="home-row"><button type="button" data-tab="meals" data-meal-type="${type}" class="msj-home-meal-link" aria-label="查看${label}的當日飲食明細">
+      <span><strong>${label}</strong><span class="msj-home-meal-names">${[...group.names].map(escapeHTML).join("、")}</span>
+      ${group.missing.size ? `<small class="home-missing">待補：${[...group.missing].join("、")}</small>` : ""}</span>
+      <span class="msj-home-meal-energy"><b>${group.caloriesComplete ? homeNumber.format(Math.round(group.calories)) + " kcal" : "熱量資料不完整"}</b><span aria-hidden="true">›</span></span></button></li>`;
   }).join("");
   return `${homeStyles}<main class="home-dashboard">
     ${renderHomeNutrition(goal, meals ? totals : null, date)}
@@ -1110,6 +1088,18 @@ async function showApp() {
 
   if (generation !== appRenderGeneration || currentUser?.id !== renderUserId) return;
   app.innerHTML = renderAppShell(content);
+  if (currentTab === "home") mountDailyQuickActions({
+    db: supabase, uid: currentUser.id, selectedDate: overviewDate ?? homeDate.format(new Date()),
+    onSaved: () => showApp(),
+    goWeight: async () => {
+      currentTab = "weight";
+      localStorage.setItem("msj-current-tab", "weight");
+      window.scrollTo(0, 0);
+      await showApp();
+      const details = app.querySelector("#anWeightEditor");
+      if (details) { details.open = true; details.querySelector('[name="weight_kg"]')?.focus(); }
+    }
+  });
   const overview = app.querySelector("#overview-page");
   if (overview) {
     const move = offset => {
@@ -1165,7 +1155,11 @@ async function showApp() {
   const analyticsUser = currentUser.id;
   const nutritionProfile = { ...profile, _stages: stages };
   const analyticsTasks = {
-    activity: () => initAnalytics(supabase, analyticsUser, analyticsTab),
+    activity: async () => {
+      await initAnalytics(supabase, analyticsUser, analyticsTab);
+      if (currentTab === analyticsTab && currentUser?.id === analyticsUser)
+        mountActivityDedupeView(supabase, analyticsUser);
+    },
     weight: async () => {
       await initAnalytics(supabase, analyticsUser, analyticsTab, profile);
       await mountWeightTrends(supabase, analyticsUser, profile);
@@ -1188,7 +1182,10 @@ async function showApp() {
       const next = button.dataset.tab;
       if (currentTab === next) return;
       if (next === "settings") settingsReturnTab = currentTab;
-      if (button.closest(".home-dashboard") && next === "meals") diarySelection = overviewDate;
+      if (button.closest(".home-dashboard") && next === "meals") {
+        diarySelection = overviewDate;
+        mealDeepLink = button.dataset.mealType || null;
+      }
       currentTab = next;
       localStorage.setItem("msj-current-tab", next);
       window.scrollTo(0, 0);
@@ -1591,6 +1588,7 @@ async function showApp() {
     });
     mountDiaryQuickActions();
     mountSmartMeal({ db: supabase, uid: analyticsUser, getDate: () => diarySelection || homeDate.format(new Date()), onSaved: () => showApp() });
+    if (mealDeepLink) { openMealGroupAfterRender(mealDeepLink); mealDeepLink = null; }
   }
 
 }

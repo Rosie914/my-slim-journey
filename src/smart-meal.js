@@ -295,6 +295,7 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
       <div id="msjQuickFavorites" class="msj-quick-favorites" hidden></div>
       <div id="msjSmartPhotoPreview" class="msj-smart-photo-preview" hidden></div>
       <p id="msjSmartStatus" role="status" aria-live="polite" class="msj-smart-note">例如「半根香蕉」會先用常見份量估算；有完全相符的紀錄時會優先沿用。</p>
+      <details id="msjAiIssues" class="msj-ai-issues" hidden><summary>最近辨識問題</summary><div data-ai-issue-list></div></details>
     </form>
     <div id="msjSmartReview" hidden></div>`;
   const heading = overview.querySelector(".diary-title");
@@ -316,6 +317,88 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
   let currentText = "", reviewDate = null;
   const say = message => { status.textContent = message; };
   const setLoading = value => { loading = value; submit.disabled = value; submit.textContent = value ? "辨識中…" : "智慧辨識"; };
+  // Local, per-user draft: no photos, access tokens or private prompts in diagnostics.
+  const draftKey = `msj-meal-draft-v2:${uid}`;
+  const issueKey = `msj-ai-issues-v1:${uid}`;
+  let lastReviewNote = '';
+  const readLocal = (key) => { try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch { return null; } };
+  const writeLocal = (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* private mode or quota: keep current page usable */ } };
+  const clearDraft = () => { try { localStorage.removeItem(draftKey); } catch {} };
+  function persistDraft(items=null,note='') {
+    const raw=textInput.value.trim();
+    if(!raw && !items?.length) return;
+    writeLocal(draftKey,{version:2,at:Date.now(),text:raw,date:reviewDate || date(),
+      sharing:sharingUI.open,count:shareCount.value,mode:shareMode.value,
+      reviewItems:items?.slice(0,30)||null,note:String(note||lastReviewNote).slice(0,500),
+      hadPhoto:Boolean(photoInput.files?.length)});
+  }
+  function errorCategory(error) {
+    const status=Number(error?.context?.status || error?.status || 0);
+    const message=String(error?.message || error || '').toLowerCase();
+    if(status===401 || status===403 || /unauthor|登入|權限/.test(message)) return 'authorization';
+    if(status===429 || /429|rate limit|quota|配額/.test(message)) return 'rate_limited';
+    if(status===502 || status===503 || status===504 || /503|502|504|忙碌|overload|暫時無法/.test(message)) return 'service_busy';
+    if(error?.name==='AbortError'||/abort|timeout|逾時|超過.*秒/.test(message)) return 'timeout';
+    if(/invalid|json|解析|未辨識|沒有回傳|格式/.test(message)) return 'invalid_response';
+    if(/network|failed to fetch|連線|fetch/.test(message)) return 'network';
+    return 'other';
+  }
+  const categories={authorization:'登入權限',rate_limited:'AI 使用量限制',service_busy:'AI 服務忙碌',timeout:'等待逾時',invalid_response:'回傳內容不完整',network:'網路連線',other:'其他失敗'};
+  function logIssue(stage,error) {
+    const issue={at:Date.now(),stage:stage==='photo'?'照片':stage==='portion'?'份量重新估算':'文字',code:errorCategory(error)};
+    const records=(readLocal(issueKey)||[]).filter(item=>Date.now()-Number(item.at)<7*86400000).slice(-14);
+    records.push(issue);writeLocal(issueKey,records);
+    renderIssues();
+  }
+  function renderIssues() {
+    const details=host.querySelector('#msjAiIssues'),list=details.querySelector('[data-ai-issue-list]');
+    const items=(readLocal(issueKey)||[]).filter(item=>Date.now()-Number(item.at)<7*86400000).slice(-10).reverse();
+    details.hidden=!items.length;
+    list.textContent='';
+    for(const item of items){
+      const p=document.createElement('p');
+      p.textContent=`${new Date(item.at).toLocaleString('zh-TW')} · ${item.stage} · ${categories[item.code]||'辨識未完成'}`;
+      list.append(p);
+    }
+  }
+  async function invokeAiWithRetry(functionName,payload,maxWait=22000) {
+    const endAt=Date.now()+maxWait;
+    let lastError;
+    for(let attempt=0;attempt<2;attempt++) {
+      const budget=Math.min(attempt===0?12500:8500,Math.max(1500,endAt-Date.now()));
+      const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),budget);
+      try{
+        const {data,error}=await db.functions.invoke(functionName,{body:payload,signal:controller.signal});
+        if(error)throw error;
+        if(data?.success===false)throw Error(data.error||'AI 回傳失敗');
+        return data;
+      }catch(error){
+        lastError=error;
+        if(attempt===1 || Date.now()+1600>=endAt || !['rate_limited','service_busy','timeout','network'].includes(errorCategory(error)))break;
+        say('AI 暫時忙碌，正在自動重試一次…');
+        await new Promise(resolve=>setTimeout(resolve,320));
+      }finally{clearTimeout(timer);}
+    }
+    throw lastError || Error('AI 暫時無法使用');
+  }
+  renderIssues();
+  const draft = readLocal(draftKey);
+  if(draft?.version===2 && Date.now()-draft.at<7*86400000){
+    textInput.value=String(draft.text||'');
+    sharingUI.open=Boolean(draft.sharing);
+    if(draft.count)shareCount.value=String(draft.count);
+    if(draft.mode)shareMode.value=draft.mode;
+    reviewDate=/^\d{4}-\d{2}-\d{2}$/.test(draft.date||'')?draft.date:date();
+    status.textContent=draft.hadPhoto?'已恢復文字與資料；照片無法自動保存，若要重新辨識請再選一次照片。':'已恢復尚未儲存的飲食草稿。';
+    if(Array.isArray(draft.reviewItems)&&draft.reviewItems.length) {
+      currentText=textInput.value;
+      origin='manual';
+      renderReview(draft.reviewItems,'已恢復上次尚未儲存的確認內容；請再檢查份量與營養。');
+    }
+  } else if(draft)clearDraft();
+  textInput.addEventListener('input',()=>persistDraft());
+  sharingUI.addEventListener('toggle',()=>persistDraft());
+  [shareCount,shareMode].forEach(element=>element.addEventListener('change',()=>persistDraft()));
 
   // 快取僅限本人資料；查詢失敗不阻塞文字輸入和 AI。
   Promise.allSettled([
@@ -348,6 +431,7 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
 
   let previewUrl = null;
   photoInput.onchange = () => {
+    persistDraft();
     photo = null;
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     previewUrl = null;
@@ -532,7 +616,9 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
   });
 
   function renderReview(items, note) {
+    lastReviewNote=note;
     parsed = items.map(item => ({...item}));
+    persistDraft(parsed,note);
     review.hidden = false;
     review.innerHTML = `<div class="msj-smart-review-head"><strong>請確認這餐的內容</strong><small>直接以「半根／一碗」確認，不必自行猜克數。所有數字都可調整。</small></div>
       <form id="msjSmartConfirm">
@@ -613,7 +699,9 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
         }
       }
       showSummary();
+      persistDraft(getRows(),note);
     });
+    reviewForm.addEventListener('change',()=>persistDraft(getRows(),note));
     reviewForm.addEventListener("click", async event => {
       const button = event.target.closest("[data-smart-reestimate]");
       if (!button || button.disabled) return;
@@ -632,12 +720,9 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
       const oldText = button.textContent;
       button.textContent = "重新估算中…";
       rowStatus.textContent = "正在依你實際吃的份量重新估算，不會把整盤算給你…";
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 18000);
       try {
         const body = { text:`只記錄我本人吃到的單項食物：${name}，食用份量${quantity}。請將它作為一項食物，不要按整桌總量計算。`, selectedDate:reviewDate || date() };
-        const { data:result, error } = await db.functions.invoke("parse-meal-text", { body, signal:controller.signal });
-        if (error || result?.success === false) throw Error(result?.error || error?.message || "AI 未成功");
+        const result = await invokeAiWithRetry("parse-meal-text",body,17500);
         if (!Array.isArray(result?.items) || result.items.length !== 1) throw Error("AI 無法可靠確認單一食物，請手動補充。");
         const estimated = { ...result.items[0],food_name:name,quantity,
           _from:"依目前份量 AI 重新估算",nutrition_source:"ai_estimate",confidence:"low" };
@@ -647,9 +732,10 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
         row.querySelector(".msj-smart-item-title small").textContent = estimated._from;
         rowStatus.textContent = "已依新份量重新估算；請核對熱量、蛋白質與烹調方式。";
       } catch (error) {
-        rowStatus.textContent = `重新估算未完成（${error?.name === "AbortError" ? "逾時" : error.message || "服務忙碌"}），已保留份量及現有資料；可再試一次或手動填寫。`;
+        logIssue('portion',error);
+        rowStatus.textContent = `重新估算未完成（${categories[errorCategory(error)]}），已保留份量及現有資料；可再試一次或手動填寫。`;
       } finally {
-        clearTimeout(timer);
+        persistDraft(getRows(),note);
         button.disabled = false;
         button.textContent = oldText;
         saveButton.disabled = false;
@@ -692,6 +778,7 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
         }] });
         if (error) throw error;
         saveStatus.textContent = "已儲存。";
+        clearDraft();
         await onSaved?.();
       } catch (error) {
         if (photoPath) await db.storage.from("meal-photos").remove([photoPath]).catch(()=>{});
@@ -708,6 +795,7 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
     const file = photoInput.files?.[0];
     if (!raw && !file) { say("請輸入食物或選擇照片。"); textInput.focus(); return; }
     currentText = raw;
+    persistDraft();
     const share = sharingContext(raw, {enabled:sharingUI.open, count:shareCount.value, mode:shareMode.value});
     reviewDate = date();
     setLoading(true);
@@ -738,14 +826,7 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
         say("正在比對食物並分析，若服務繁忙會讓你直接修改儲存…");
         payload = { text:[raw.slice(0,1350),share?.instruction].filter(Boolean).join("\n"), selectedDate:reviewDate };
       }
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 20500);
-      let result, error;
-      try {
-        ({data:result,error} = await db.functions.invoke(file ? "analyze-food" : "parse-meal-text", {body:payload,signal:controller.signal}));
-      } finally { clearTimeout(timer); }
-      if (error) throw error;
-      if (result?.success === false) throw Error(result?.error || "AI 分析未成功。");
+      const result = await invokeAiWithRetry(file ? "analyze-food" : "parse-meal-text",payload,22000);
       const items = file ? result?.analysis?.items : result?.items;
       if (!Array.isArray(items) || !items.length) throw Error("AI 未能辨識出食物。");
       const mapped = items.map(item => {
@@ -759,8 +840,9 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
       renderReview(mapped, [shareNote, file ? "照片已縮小後分析；料理用油、食材份量可能有誤差，請確認。" : "AI 營養數值是估算；份量可保留「半根、一小碗」，不必填克數。"].filter(Boolean).join(" "));
       say("辨識完成，確認後儲存。");
     } catch (error) {
+      logIssue(file?'photo':'text',error);
       origin = file ? "ai_photo" : "manual";
-      const msg = error?.name === "AbortError" || /abort/i.test(error?.message || "") ? "AI 等待超過 20 秒" : (error?.message || "AI 暫時無法使用");
+      const msg = categories[errorCategory(error)] || 'AI 暫時無法使用';
       const recovered = fallback?.length ? fallback : [blankItem(raw)];
       renderReview(recovered, `AI 未完成（${msg}）。${share ? "桌菜無法可靠拆解，請逐項確認自己吃了什麼；" : ""}已保留輸入與可用的資料；缺少的熱量不會填成 0。可直接修改並儲存。`);
       say("AI 暫時失敗，但你不需要重新輸入，請直接確認或補充下方資訊。");
