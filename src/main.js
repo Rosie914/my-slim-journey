@@ -23,6 +23,8 @@ import "./ui-phase2.css";
 import "./ui-phase3.css";
 import "./ui-shortcut-sync.css";
 import "./home-activity.css";
+import "./home-overview-clean.css";
+import { mountHomeDeficit } from "./deficit-insights.js";
 import "./trend-charts.css";
 import "./daily-quick-actions.css";
 import { trendLineChart, goalProgress, mountWeightTrends } from "./trend-charts.js";
@@ -70,6 +72,8 @@ const savedTab = localStorage.getItem("msj-current-tab");
 let currentTab = appTabs.includes(savedTab) ? savedTab : "home";
 let diarySelection = null;
 let mealDeepLink = null;
+let activityDeepLink = null;
+let coachDeepLinkDate = null;
 let overviewDate = null;
 let profile = null;
 let stages = [];
@@ -648,20 +652,21 @@ function renderHomeEnergyPlan(goal, recordedActivity, date) {
   const chart = trendLineChart(history.map(item => ({date:item.day,value:item.calories})),
     {unit:'kcal',target,label:'運動與活動消耗',color:'#a78ac5'});
   const sourceText = isHealth ? "Apple 健康 · 全天活動熱量" : "運動紀錄 · 不含日常活動";
-  return `<section class="card msj-activity-card msj-activity-compact">
+  return `<section class="card msj-activity-card msj-activity-compact msj-tap-card">
     <div class="msj-activity-heading">
-      <div><h2>每日活動</h2><p>${dayLabel} · ${sourceText}</p></div>
+      <div><h2>每日活動 <span class="msj-card-hint">查看明細 ›</span></h2><p>${dayLabel} · ${sourceText}</p></div>
       <div class="msj-activity-actions"><button type="button" id="homeHealthShortcut" class="home-shortcut" aria-label="執行 Find Health Samples Where 捷徑">同步健康</button><button type="button" id="homeHealthRefresh" class="home-refresh" aria-label="重新讀取已同步資料">↻ 更新</button></div>
     </div>
     <div class="msj-activity-step-tile"><div><small>${isToday ? "今日步數" : "當日步數"}</small><strong>${steps}</strong></div><span>Apple 健康</span></div>
     <div class="msj-activity-progress-title"><strong>${isHealth ? "全天活動熱量" : "已記錄運動消耗"}</strong><span>${percent === null ? "尚無紀錄" : percent + "%"}</span></div>
     <div class="msj-activity-track" role="progressbar" aria-label="${isHealth ? "全天活動" : "已記錄運動"}消耗進度" aria-valuemin="0" aria-valuemax="${target}" aria-valuenow="${actual == null ? 0 : Math.min(actual,target)}"><span class="msj-activity-fill" style="width:${progress}%"></span></div>
     <div class="msj-activity-progress-foot"><span>${actual === null ? "尚無消耗紀錄" : homeNumber.format(Math.round(actual)) + " kcal 已記錄"}</span><span>參考 ${homeNumber.format(target)} kcal</span></div>
-    <p class="msj-activity-hint">${isHealth ? "全天活動熱量包含運動，請勿與運動消耗相加。" : "150 kcal 為溫和運動參考，不必每天達標；減脂仍以合理的全天熱量赤字為主。"}</p>
+    <p class="msj-activity-hint">${isHealth ? "全天活動熱量包含運動，請勿與運動消耗相加。" : "運動消耗僅供參考，不必每天達標。"}</p>
     <div class="msj-activity-chart-title"><strong>近 7 天趨勢</strong><small>截至 ${dayLabel} · 缺少資料不補零</small></div>
     ${chart}
-    <div class="msj-activity-footer"><button type="button" data-tab="activity" class="home-link">查看運動紀錄 ›</button><span>全日活動熱量：${isHealth ? "已同步" : "待設定捷徑"}</span></div>
-    <p class="home-note msj-activity-help" id="homeHealthStatus">同步健康會啟動 iPhone 捷徑；更新只重新讀取已上傳資料。運動消耗不會自動加回可吃熱量。</p>
+    <div class="msj-activity-footer"><span>全日活動熱量：${isHealth ? "已同步" : "待設定捷徑"}</span></div>
+    <p class="home-note msj-activity-help" id="homeHealthStatus">同步健康會啟動捷徑；「更新」僅讀取已上傳的資料。</p>
+    <button type="button" data-tab="activity" class="msj-stretch-link" aria-label="查看所選日期的運動紀錄"></button>
   </section>`;
 }
 
@@ -705,7 +710,7 @@ function renderCalorieMeter(actual, target) {
 }
 
 function renderHomeNutrition(goal, totals, date) {
-  if (!totals) return '<section class="card"><h2>當日營養攝取</h2><p>飲食紀錄暫時無法載入。</p></section>';
+  if (!totals) return '<section class="card home-nutrition msj-tap-card"><h2>當日營養攝取</h2><p>飲食紀錄暫時無法載入。</p><button type="button" data-tab="meals" class="msj-stretch-link" aria-label="查看飲食明細"></button></section>';
   const complete = totals._complete || { calories: true, protein: true, carbs: true, fat: true };
   const remaining = goal.ready && complete.calories ? Math.round(goal.calorieTarget - totals.calories) : null;
   const actualCalories = complete.calories ? homeNumber.format(Math.round(totals.calories)) : "資料不完整";
@@ -717,8 +722,8 @@ function renderHomeNutrition(goal, totals, date) {
     ["碳水", "carbs", "lavender"],
     ["脂肪", "fat", "rose"]
   ];
-  return `<section class="card home-nutrition">
-    <div class="home-row"><h2>當日營養攝取</h2><span class="home-note">${date.slice(5).replace("-", "/")}</span></div>
+  return `<section class="card home-nutrition msj-tap-card">
+    <div class="home-row"><h2>當日營養攝取</h2><span class="msj-card-hint">${date.slice(5).replace("-", "/")} · 查看飲食明細 ›</span></div>
     <div class="home-row home-energy">
       <div><span class="home-note">${goal.ready ? (remaining === null ? "熱量統計" : remaining < 0 ? "超出目標" : "剩餘熱量") : "已攝取"}</span>
       <div class="home-number">${remaining === null ? actualCalories : homeNumber.format(Math.abs(remaining))}${actualCalories === "資料不完整" && remaining === null ? "" : " <small>kcal</small>"}</div></div>
@@ -737,13 +742,7 @@ function renderHomeNutrition(goal, totals, date) {
       }).join("")}
     </div>
     ${incompleteLabels.length ? `<p class="home-note">${incompleteLabels.join("、")}有未填資料，總量暫不完整。</p>` : ""}
-    ${goal.ready ? `<details class="home-details"><summary>熱量估算與階段資訊</summary>
-      ${renderNutritionBasis(goal)}
-      <p>${escapeHTML(goal.activityLabel)}</p>
-      ${goal.stageName ? `<p>目前階段：${escapeHTML(goal.stageName)}</p>` : ""}
-      ${Math.abs(goal.macroCalories - goal.calorieTarget) > 5 ? `<p>營養素換算熱量為 ${goal.macroCalories} kcal，與熱量目標不同。</p>` : ""}
-      ${goal.warnings.map(warning => `<p>${escapeHTML(warning)}</p>`).join("")}
-    </details>` : ""}
+    <button type="button" data-tab="meals" class="msj-stretch-link" aria-label="查看所選日期的飲食明細"></button>
   </section>`;
 }
 
@@ -754,8 +753,8 @@ function renderHomeWeight(stage, current, start, weights, date) {
   const distance = target === null || current === null ? null : Math.max(0, current - target);
   const progress = target !== null && current !== null && start > target ? (start - current) / (start - target) * 100 : null;
   const showProgress = target !== null && current !== null && progress !== null;
-  return `<section class="card home-weight">
-    <div class="home-row"><h2>體重進度</h2><button type="button" data-tab="weight" class="home-link">查看體重 ›</button></div>
+  return `<section class="card home-weight msj-tap-card">
+    <div class="home-row"><h2>體重進度</h2><span class="msj-card-hint">查看趨勢 ›</span></div>
     <div class="home-row home-energy"><div>
       <span class="home-note">${latestWeight ? "最新體重" : "起始體重"}</span>
       <div class="home-number">${current === null ? "—" : current.toFixed(1)} <small>kg</small></div>
@@ -767,6 +766,7 @@ function renderHomeWeight(stage, current, start, weights, date) {
     </dl>`}
     <div class="msj-home-chart-heading"><h3>最近 7 天體重變化</h3><span>kg</span></div>
     ${weights === null ? '<p class="home-note">體重紀錄暫時無法載入。</p>' : trendLineChart(points,{unit:'kg',label:'最近七天體重',color:'#a795c6',target})}
+    <button type="button" data-tab="weight" class="msj-stretch-link" aria-label="查看體重與體脂趨勢"></button>
   </section>`;
 }
 
@@ -782,11 +782,12 @@ function renderHomeBodyFat(fats, date, fatBaseline) {
   const current = [...(fats?.values() || [])][0] ?? null;
   const target = profile?.target_body_fat_pct == null ? null : Number(profile.target_body_fat_pct);
   const earliest = fatBaseline;
-  return `<section class="card msj-home-fat"><div class="msj-home-fat-head"><h2>體脂進度</h2><button type="button" data-tab="weight" class="home-link">查看趨勢 ›</button></div>
+  return `<section class="card msj-home-fat msj-tap-card"><div class="msj-home-fat-head"><h2>體脂進度</h2><span class="msj-card-hint">查看趨勢 ›</span></div>
     <div class="msj-home-fat-stats"><div><span>最近體脂</span><strong>${current == null ? '—' : current.toFixed(1)+'%'}</strong></div><div><span>目標體脂</span><strong>${target == null ? '未設定' : target.toFixed(1)+'%'}</strong></div></div>
     ${fatBaseline === undefined ? '<p class="home-note">體脂起點暫時無法讀取。</p>' : goalProgress(earliest,current,target,'個百分點')}
     <p class="msj-home-chart-title">最近 7 天體脂變化</p>${fats === null ? '<p class="home-note">體脂紀錄暫時無法載入。</p>' : trendLineChart(points,{unit:'%',label:'最近七天體脂',color:'#d5a2b8',target})}
-    <p class="msj-trend-foot">體脂計讀數容易受水分影響，建議觀察長期趨勢。</p></section>`;
+    <p class="msj-trend-foot">體脂計讀數容易受水分影響，建議觀察長期趨勢。</p>
+    <button type="button" data-tab="weight" class="msj-stretch-link" aria-label="查看體脂與體重趨勢"></button></section>`;
 }
 
 function renderHome(meals, weights, date, weightTrend, recordedActivity, fats, fatBaseline, weightAsOfDate) {
@@ -796,49 +797,25 @@ function renderHome(meals, weights, date, weightTrend, recordedActivity, fats, f
     .filter(entry => entry.target_date >= date && Number(entry.target_weight_kg) > 0)
     .sort((a, b) => a.target_date.localeCompare(b.target_date))[0];
   const nutritionFields = { calories: "calories", protein: "protein_g", carbs: "carbs_g", fat: "fat_g" };
-  const nutritionLabels = { calories: "熱量", protein: "蛋白質", carbs: "碳水", fat: "脂肪" };
   const totals = { calories: 0, protein: 0, carbs: 0, fat: 0,
     _complete: Object.fromEntries(Object.keys(nutritionFields).map(key => [key, true])) };
-  const groups = new Map();
   for (const meal of meals ?? []) {
-    const type = Object.hasOwn(mealLabels, meal.meal_type) ? meal.meal_type : "other";
-    const group = groups.get(type) ?? { calories: 0, caloriesComplete: true, names: new Set(), missing: new Set() };
-    groups.set(type, group);
     for (const item of meal.meal_items ?? []) {
-      if (item.food_name) group.names.add(item.food_name);
       for (const [key, field] of Object.entries(nutritionFields)) {
         const value = item[field];
-        if (value == null || !Number.isFinite(Number(value))) {
-          totals._complete[key] = false;
-          group.missing.add(nutritionLabels[key]);
-          if (key === "calories") group.caloriesComplete = false;
-        } else {
-          totals[key] += Number(value);
-          if (key === "calories") group.calories += Number(value);
-        }
+        if (value == null || !Number.isFinite(Number(value))) totals._complete[key] = false;
+        else totals[key] += Number(value);
       }
     }
   }
-  const mealRows = Object.entries(mealLabels).filter(([type]) => groups.has(type)).map(([type, label]) => {
-    const group = groups.get(type);
-    return `<li class="home-row"><button type="button" data-tab="meals" data-meal-type="${type}" class="msj-home-meal-link" aria-label="查看${label}的當日飲食明細">
-      <span><strong>${label}</strong><span class="msj-home-meal-names">${[...group.names].map(escapeHTML).join("、")}</span>
-      ${group.missing.size ? `<small class="home-missing">待補：${[...group.missing].join("、")}</small>` : ""}</span>
-      <span class="msj-home-meal-energy"><b>${group.caloriesComplete ? homeNumber.format(Math.round(group.calories)) + " kcal" : "熱量資料不完整"}</b><span aria-hidden="true">›</span></span></button></li>`;
-  }).join("");
   return `${homeStyles}<main class="home-dashboard">
     ${renderHomeNutrition(goal, meals ? totals : null, date)}
     ${renderHomeEnergyPlan(goal, recordedActivity, date)}
+    <section class="card home-coach msj-tap-card"><div class="home-row"><h2>${date === homeDate.format(new Date()) ? "本週赤字概況" : "所選週赤字概況"}</h2><span class="msj-card-hint">Coach 詳細分析 ›</span></div>
+      <div id="msjHomeDeficit" class="msj-home-deficit" aria-live="polite">讀取本週資料…</div>
+      <button type="button" data-tab="coach" class="msj-stretch-link" aria-label="開啟 Coach 查看每日及每週熱量赤字"></button></section>
     ${renderHomeWeight(stage, current, Number(profile?.start_weight_kg), weights, date)}
     ${renderHomeBodyFat(fats, date, fatBaseline)}
-    <section class="card">
-      <div class="home-row"><h2>當日餐點</h2><button type="button" data-tab="meals" class="home-link">記錄飲食 ›</button></div>
-      ${mealRows ? `<ul class="home-meals">${mealRows}</ul>` : `<p class="home-note">${meals ? "當天還沒有飲食紀錄。" : "餐點暫時無法載入。"}</p>`}
-    </section>
-    <section class="card home-coach">
-      <div class="home-row"><h2>Coach</h2><button type="button" data-tab="coach" class="home-link">查看建議 ›</button></div>
-      <p class="home-note">依近 7 天的紀錄檢視飲食與營養。</p>
-    </section>
   </main>`;
 }
 
@@ -958,6 +935,33 @@ function renderAppShell(content) {
     </nav>`;
 }
 
+async function focusActivityDay(day) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return;
+  const label = document.getElementById('anActivityMonth');
+  const calendar = document.getElementById('anActivityCalendar');
+  const match = label?.textContent?.match(/(\d{4})\s*年\s*(\d{1,2})\s*月/);
+  if (!match || !calendar) return;
+  const target = day.slice(0,7).split('-').map(Number);
+  const offset = (target[0]-Number(match[1]))*12+target[1]-Number(match[2]);
+  if (Math.abs(offset)>18) return; // Very distant dates can be selected in the calendar manually.
+  const arrow = document.getElementById(offset>=0?'anActivityNext':'anActivityPrevious');
+  for(let i=0;i<Math.abs(offset);i++) arrow?.click();
+  await new Promise(resolve => {
+    let completed=false;
+    let observer=null;
+    const finish=()=>{if(completed)return;completed=true;observer?.disconnect();clearTimeout(timeout);resolve();};
+    const check=()=>{
+      if(currentTab!=='activity'||!calendar.isConnected)return finish();
+      const button=[...calendar.querySelectorAll('[data-date]')].find(node=>node.dataset.date===day);
+      if(button){button.click();finish();}
+    };
+    observer=new MutationObserver(check);
+    observer.observe(calendar,{childList:true,subtree:true});
+    const timeout=setTimeout(finish,6500);
+    check();
+  });
+}
+
 async function showApp() {
   const generation = ++appRenderGeneration;
   if (!currentUser) return showLogin();
@@ -965,6 +969,8 @@ async function showApp() {
 
   let content = "";
   let settingsWeightTrend = null;
+  let homeDeficitGoal = null;
+  let homeDeficitDate = null;
 
   try {
     await Promise.all([
@@ -991,6 +997,8 @@ async function showApp() {
         loadWeightAsOfDate(currentUser.id, date)
       ]);
       if (generation !== appRenderGeneration || currentUser?.id !== renderUserId) return;
+      homeDeficitGoal = calculateNutrition({ ...profile, _stages: stages, _weightTrend: trend.status === "fulfilled" ? trend.value : null }, asOfWeight.status === "fulfilled" ? asOfWeight.value : null, date);
+      homeDeficitDate = date;
       content = renderHome(meals.value ?? null, weights.value ?? null, date, trend.value, activity.value, fats.status === 'fulfilled' ? fats.value : null, fatBaseline.status === 'fulfilled' ? fatBaseline.value : undefined, asOfWeight.status === 'fulfilled' ? asOfWeight.value : null);
     }
 
@@ -1088,6 +1096,7 @@ async function showApp() {
 
   if (generation !== appRenderGeneration || currentUser?.id !== renderUserId) return;
   app.innerHTML = renderAppShell(content);
+  if (currentTab === "home" && homeDeficitDate) void mountHomeDeficit(supabase, currentUser.id, homeDeficitGoal, homeDeficitDate);
   if (currentTab === "home") mountDailyQuickActions({
     db: supabase, uid: currentUser.id, selectedDate: overviewDate ?? homeDate.format(new Date()),
     onSaved: () => showApp(),
@@ -1157,8 +1166,12 @@ async function showApp() {
   const analyticsTasks = {
     activity: async () => {
       await initAnalytics(supabase, analyticsUser, analyticsTab);
-      if (currentTab === analyticsTab && currentUser?.id === analyticsUser)
-        mountActivityDedupeView(supabase, analyticsUser);
+      if (currentTab === analyticsTab && currentUser?.id === analyticsUser) {
+        const focusDate = activityDeepLink;
+        activityDeepLink = null;
+        if (focusDate && focusDate !== homeDate.format(new Date())) await focusActivityDay(focusDate);
+        if (currentTab === analyticsTab && currentUser?.id === analyticsUser) mountActivityDedupeView(supabase, analyticsUser);
+      }
     },
     weight: async () => {
       await initAnalytics(supabase, analyticsUser, analyticsTab, profile);
@@ -1168,7 +1181,11 @@ async function showApp() {
     reports: () => renderReportInsights(supabase, analyticsUser, nutritionProfile, latestWeight),
     coach: async () => {
       await renderCoachGuidance(supabase, analyticsUser, nutritionProfile, latestWeight);
-      if (currentTab === analyticsTab) await mountCoachDeficit(supabase, analyticsUser, nutritionProfile, latestWeight);
+      if (currentTab === analyticsTab) {
+        const asOfDate = coachDeepLinkDate;
+        coachDeepLinkDate = null;
+        await mountCoachDeficit(supabase, analyticsUser, nutritionProfile, latestWeight, asOfDate);
+      }
     }
   };
   if (Object.hasOwn(analyticsTasks, analyticsTab)) {
@@ -1182,6 +1199,10 @@ async function showApp() {
       const next = button.dataset.tab;
       if (currentTab === next) return;
       if (next === "settings") settingsReturnTab = currentTab;
+      if (button.closest(".home-dashboard") && next === "coach") coachDeepLinkDate = overviewDate || homeDate.format(new Date());
+      if (button.closest(".home-dashboard") && next === "activity") {
+        activityDeepLink = overviewDate || homeDate.format(new Date());
+      }
       if (button.closest(".home-dashboard") && next === "meals") {
         diarySelection = overviewDate;
         mealDeepLink = button.dataset.mealType || null;
