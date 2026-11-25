@@ -214,6 +214,51 @@ function blankItem(text = "") {
     ...Object.fromEntries(fields.map(key => [key,null])), nutrition_source:"manual", confidence:"low", _from:"待自行補充" };
 }
 
+// Photo 2.0: only transform user-selected corrections, never silently rewrite other dishes.
+function scaleMealItem(item, factor) {
+  if (!Number.isFinite(factor) || factor <= 0 || factor > 8) throw Error("份量比例無效");
+  const base = String(item?.quantity || "原份量").slice(0,80);
+  const pretty = factor === .5 ? "半份" : factor === 1 ? "原份量" : factor === 1.5 ? "1.5 份" : `${factor} 倍`;
+  return { ...item,
+    _portionBaseline:item._portionBaseline || {...item},
+    quantity:factor === 1 ? base : `${pretty}（原 ${base}）`,
+    serving_weight_g:n(item.serving_weight_g) === null ? null : round(Number(item.serving_weight_g) * factor),
+    ...Object.fromEntries(fields.map(key => [key, n(item[key]) === null ? null : round(Number(item[key]) * factor)])),
+    confidence:"low", _from:"依現有估算比例換算（請核對）"
+  };
+}
+function applyCorrectionOperations(original, operations) {
+  if (!Array.isArray(original) || !Array.isArray(operations) || !operations.length || operations.length > 15)
+    throw Error("修正結果不完整，原資料已保留");
+  const next = original.map(item => ({...item}));
+  const remove = new Set(), edited = new Set(), added=[];
+  for (const operation of operations) {
+    const type = operation?.op, index = Number(operation?.index) - 1;
+    if (!["update","remove","add"].includes(type)) throw Error("修正操作無效，原資料已保留");
+    if (type !== "add") {
+      if (!Number.isInteger(index) || index < 0 || index >= next.length || edited.has(index))
+        throw Error("AI 指定的食物不明確，原資料已保留");
+      edited.add(index);
+    }
+    if (type === "remove") { remove.add(index); continue; }
+    const source = operation.item;
+    if (!source || typeof source.food_name !== "string" || !source.food_name.trim())
+      throw Error("修正後的食物名稱不完整，原資料已保留");
+    const item = {
+      food_name:source.food_name.trim().slice(0,100), quantity:String(source.quantity || "").slice(0,100),
+      serving_weight_g:n(source.serving_weight_g),
+      ...Object.fromEntries(fields.map(key => [key,n(source[key])])),
+      nutrition_source:"ai_estimate",confidence:"low",_from:"一句話 AI 修正（請核對）"
+    };
+    if (type === "add") added.push(item);
+    else next[index] = item;
+  }
+  const result = next.filter((_,i) => !remove.has(i)).concat(added);
+  if (!result.length) throw Error("修正後沒有食物，請自行重新記錄");
+  if (result.length > 30) throw Error("食物超過 30 項，請分次記錄");
+  return result;
+}
+
 // Food package data is treated as an attributed source, not an AI guess.
 // A GTIN must pass its checksum before any lookup (EAN-8/13, UPC-A, GTIN-14).
 function validGTIN(code) {
@@ -315,6 +360,8 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
   const date = () => getDate?.() || dateTaipei();
   let memory = [], parsed = [], photo = null, origin = "manual", loading = false;
   let currentText = "", reviewDate = null;
+  let reviewMealType = null, reviewMealTime = null, correctionUndo = null;
+  let correctionText = "", reviewRevision = 0;
   const say = message => { status.textContent = message; };
   const setLoading = value => { loading = value; submit.disabled = value; submit.textContent = value ? "辨識中…" : "智慧辨識"; };
   // Local, per-user draft: no photos, access tokens or private prompts in diagnostics.
@@ -330,6 +377,9 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
     writeLocal(draftKey,{version:2,at:Date.now(),text:raw,date:reviewDate || date(),
       sharing:sharingUI.open,count:shareCount.value,mode:shareMode.value,
       reviewItems:items?.slice(0,30)||null,note:String(note||lastReviewNote).slice(0,500),
+      correction:String(correctionText||"").slice(0,450),
+      mealType:review.querySelector("#msjSmartConfirm")?.elements?.meal_type?.value || reviewMealType,
+      mealTime:review.querySelector("#msjSmartConfirm")?.elements?.meal_time?.value || reviewMealTime,
       hadPhoto:Boolean(photoInput.files?.length)});
   }
   function errorCategory(error) {
@@ -345,7 +395,7 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
   }
   const categories={authorization:'登入權限',rate_limited:'AI 使用量限制',service_busy:'AI 服務忙碌',timeout:'等待逾時',invalid_response:'回傳內容不完整',network:'網路連線',other:'其他失敗'};
   function logIssue(stage,error) {
-    const issue={at:Date.now(),stage:stage==='photo'?'照片':stage==='portion'?'份量重新估算':'文字',code:errorCategory(error)};
+    const issue={at:Date.now(),stage:stage==='photo'?'照片':stage==='portion'?'份量重新估算':stage==='correction'?'修正 AI':'文字',code:errorCategory(error)};
     const records=(readLocal(issueKey)||[]).filter(item=>Date.now()-Number(item.at)<7*86400000).slice(-14);
     records.push(issue);writeLocal(issueKey,records);
     renderIssues();
@@ -389,6 +439,9 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
     if(draft.count)shareCount.value=String(draft.count);
     if(draft.mode)shareMode.value=draft.mode;
     reviewDate=/^\d{4}-\d{2}-\d{2}$/.test(draft.date||'')?draft.date:date();
+    correctionText=String(draft.correction||"").slice(0,450);
+    reviewMealType=Object.hasOwn(mealTypes,draft.mealType) ? draft.mealType : null;
+    reviewMealTime=/^\d{2}:\d{2}$/.test(draft.mealTime||'') ? draft.mealTime : null;
     status.textContent=draft.hadPhoto?'已恢復文字與資料；照片無法自動保存，若要重新辨識請再選一次照片。':'已恢復尚未儲存的飲食草稿。';
     if(Array.isArray(draft.reviewItems)&&draft.reviewItems.length) {
       currentText=textInput.value;
@@ -615,33 +668,55 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
     button.onclick=()=>showPackagePanel(button.dataset.msjPackage);
   });
 
-  function renderReview(items, note) {
+  function renderReview(items, note, {scroll=true,clearCorrection=false}={}) {
+    reviewRevision++;
+    const previousForm=review.querySelector("#msjSmartConfirm");
+    if(previousForm) {
+      reviewMealType=previousForm.elements.meal_type.value;
+      reviewMealTime=previousForm.elements.meal_time.value;
+      correctionText=previousForm.querySelector('#msjMealCorrection')?.value || "";
+    }
+    if(clearCorrection) correctionText="";
     lastReviewNote=note;
     parsed = items.map(item => ({...item}));
     persistDraft(parsed,note);
     review.hidden = false;
-    review.innerHTML = `<div class="msj-smart-review-head"><strong>請確認這餐的內容</strong><small>直接以「半根／一碗」確認，不必自行猜克數。所有數字都可調整。</small></div>
+    const sourceLabel=item=>item.confidence==='low'?'待確認':item.confidence==='medium'?'估算':'已辨識';
+    review.innerHTML = `<div class="msj-smart-review-head"><strong>辨識完成 · ${items.length} 項食物</strong><small>先確認名稱和份量，再儲存。營養是估算，非秤重實測。</small></div>
       <form id="msjSmartConfirm">
-        <div class="msj-smart-review-headline"><label>餐別<select name="meal_type">${Object.entries(mealTypes).map(([key,label])=>`<option value="${key}" ${key === suggestType(currentText) ? "selected" : ""}>${label}</option>`).join("")}</select></label>
-        <label>用餐時間<input name="meal_time" type="time" value="${timeTaipei()}" required></label></div>
+        <div class="msj-smart-review-headline"><label>餐別<select name="meal_type">${Object.entries(mealTypes).map(([key,label])=>`<option value="${key}" ${key === (reviewMealType || suggestType(currentText)) ? "selected" : ""}>${label}</option>`).join("")}</select></label>
+        <label>用餐時間<input name="meal_time" type="time" value="${esc(reviewMealTime || timeTaipei())}" required></label></div>
+        <div class="msj-photo2-correction">
+          <label for="msjMealCorrection"><b>✦ 一句話修正 AI</b><small>說明哪裡不對，只修改提到的食物</small></label>
+          <textarea id="msjMealCorrection" rows="2" maxlength="450" placeholder="例如：這是去皮雞腿，不是豬肉；飯只吃兩口，沒有飲料">${esc(correctionText)}</textarea>
+          <div class="msj-photo2-correction-row"><span>沒拍到的食物也可以直接補充</span><button type="button" data-smart-correct>套用修正</button></div>
+          <p data-smart-correct-status role="status" aria-live="polite"></p>
+        </div>
         <div class="msj-smart-items">${items.map((item,i) => `<div class="msj-smart-item" data-smart-index="${i}">
-          <div class="msj-smart-item-title"><b>食物 ${i+1}</b><small>${esc(item._from || (origin === "ai_photo" ? "AI 拍照估算" : "AI 文字估算"))}</small></div>
-          <label>食物名稱<input data-key="food_name" required value="${esc(item.food_name)}"></label>
-          <label>份量（用日常描述就好）<input data-key="quantity" placeholder="例如：半根、兩口、四分之一片" value="${esc(item.quantity)}"></label>
-          <p class="msj-smart-portion-status" data-smart-portion-status role="status">份量可直接修改；已知比例會自動調整營養值。</p>
-          <button type="button" class="msj-smart-reestimate" data-smart-reestimate>✦ 依目前份量重新估算</button>
-          <div class="msj-smart-nutrition">${["calories","protein_g"].map(key=>`<label>${labels[key]}<input data-key="${key}" type="number" min="0" step="any" value="${esc(item[key] ?? "")}"></label>`).join("")}</div>
-          <details><summary>調整重量與其他營養（選填）</summary>
-            <label>估計重量 g（不必填）<input data-key="serving_weight_g" type="number" min="0" step="any" value="${esc(item.serving_weight_g ?? "")}"></label>
-            <div class="msj-smart-nutrition">${fields.filter(key=>!["calories","protein_g"].includes(key)).map(key=>`<label>${labels[key]}<input data-key="${key}" type="number" min="0" step="any" value="${esc(item[key] ?? "")}"></label>`).join("")}</div>
+          <div class="msj-smart-item-title"><b>${esc(item.food_name || `食物 ${i+1}`)} <em class="msj-photo2-confidence">${sourceLabel(item)}</em></b><button type="button" class="msj-photo2-remove" data-smart-remove="${i}" aria-label="移除${esc(item.food_name||`第 ${i+1} 項食物`)}">移除</button></div>
+          <div class="msj-photo2-glance"><span>${esc(item.quantity || "份量待確認")}</span><strong>${item.calories==null?"熱量待補":`${nf.format(item.calories)} kcal`}</strong><span>${item.protein_g==null?"蛋白質待補":`蛋白質 ${nf.format(item.protein_g)} g`}</span></div>
+          <div class="msj-photo2-portions" role="group" aria-label="${esc(item.food_name||`第 ${i+1} 項`)}份量快捷調整"><span>份量快捷</span><button type="button" data-smart-portion="0.5">½ 份</button><button type="button" data-smart-portion="1.5">1.5 倍</button></div>
+          <details class="msj-photo2-edit" ${!item.food_name?'open':''}>
+            <summary>檢查／修改食物名稱、份量與熱量</summary>
+            <small class="msj-photo2-source">${esc(item._from || (origin === "ai_photo" ? "AI 拍照估算" : "AI 文字估算"))}</small>
+            <label>食物名稱<input data-key="food_name" required value="${esc(item.food_name)}"></label>
+            <label>實際吃的份量<input data-key="quantity" placeholder="例如：半根、兩口、四分之一片" value="${esc(item.quantity)}"></label>
+            <p class="msj-smart-portion-status" data-smart-portion-status role="status" hidden></p>
+            <div class="msj-smart-nutrition">${["calories","protein_g"].map(key=>`<label>${labels[key]}<input data-key="${key}" type="number" min="0" step="any" value="${esc(item[key] ?? "")}"></label>`).join("")}</div>
+            <button type="button" class="msj-smart-reestimate" data-smart-reestimate>✦ 依目前份量 AI 重新估算</button>
+            <details><summary>進階：調整重量與其他營養</summary>
+              <label>估計重量 g（不必填）<input data-key="serving_weight_g" type="number" min="0" step="any" value="${esc(item.serving_weight_g ?? "")}"></label>
+              <div class="msj-smart-nutrition">${fields.filter(key=>!["calories","protein_g"].includes(key)).map(key=>`<label>${labels[key]}<input data-key="${key}" type="number" min="0" step="any" value="${esc(item[key] ?? "")}"></label>`).join("")}</div>
+            </details>
           </details>
         </div>`).join("")}</div>
+        <div class="msj-photo2-item-actions"><button type="button" data-smart-add>＋ 補一樣食物</button><button type="button" data-smart-undo ${correctionUndo?'':'hidden'}>↶ 還原上一步</button></div>
         <p class="msj-smart-review-note">${esc(note)}</p>
         <p class="msj-smart-summary" aria-live="polite"></p>
-        <div class="msj-smart-review-actions"><button type="button" data-smart-reedit>返回修改輸入</button><button type="button" data-smart-retry>重新辨識整餐</button><button type="submit" class="msj-smart-save">確認儲存</button></div>
+        <div class="msj-smart-review-actions"><button type="button" data-smart-reedit>返回修改輸入</button><button type="button" data-smart-retry>重新辨識整餐</button><button type="submit" class="msj-smart-save">確認儲存這餐</button></div>
         <p data-save-status class="msj-smart-note" role="status"></p>
       </form>`;
-    review.scrollIntoView({ behavior:"smooth", block:"nearest" });
+    if(scroll)review.scrollIntoView({ behavior:"smooth", block:"nearest" });
     const reviewForm = review.querySelector("#msjSmartConfirm");
     const getRows = () => [...reviewForm.querySelectorAll(".msj-smart-item")].map(row => {
       const value = key => row.querySelector(`[data-key="${key}"]`)?.value;
@@ -658,11 +733,61 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
           (parsed[Number(row.dataset.smartIndex)]?.confidence || "low")
       };
     });
+    const correctionInput=reviewForm.querySelector("#msjMealCorrection");
+    const correctionStatus=reviewForm.querySelector("[data-smart-correct-status]");
+    reviewForm.querySelector("[data-smart-correct]").onclick=async()=>{
+      const correction=correctionInput.value.trim();
+      if(!correction){correctionStatus.textContent="請描述要修正的食物與份量。";correctionInput.focus();return;}
+      const button=reviewForm.querySelector("[data-smart-correct]");
+      const save=reviewForm.querySelector(".msj-smart-save");
+      const items=getRows();
+      if(items.some(item=>!item.food_name)) {correctionStatus.textContent="先補上食物名稱，再用 AI 修正。";return;}
+      const requestRevision=reviewRevision;
+      correctionText=correction;
+      persistDraft(items);
+      button.disabled=true;save.disabled=true;button.textContent="修正中…";
+      correctionStatus.textContent="AI 只會修正你指定的項目，完成後請核對結果。";
+      try {
+        const data=await invokeAiWithRetry("correct-meal-items",{items,correction},22000);
+        if(!reviewForm.isConnected || reviewRevision!==requestRevision) return;
+        const changed=applyCorrectionOperations(items,data?.operations);
+        correctionUndo=items;
+        renderReview(changed,`AI 已按描述修正：${correction}。${data.note||"請核對食用份量和營養估算。"}`,{scroll:false,clearCorrection:true});
+        say("已更新修正項目，確認後才會儲存。其他食物保持不變。");
+      } catch(error) {
+        if(!reviewForm.isConnected)return;
+        logIssue('correction',error);
+        correctionStatus.textContent=`修正未完成（${categories[errorCategory(error)]}），原餐點與文字都已保留，可重試或直接修改。`;
+      } finally {button.disabled=false;save.disabled=false;button.textContent="套用修正";}
+    };
+    reviewForm.addEventListener("click",event=>{
+      const row=event.target.closest(".msj-smart-item");
+      const portion=event.target.closest("[data-smart-portion]");
+      const remove=event.target.closest("[data-smart-remove]");
+      if(portion&&row){
+        const snapshot=getRows(),index=Number(row.dataset.smartIndex);
+        correctionUndo=snapshot;
+        snapshot[index]=scaleMealItem(parsed[index]?._portionBaseline || snapshot[index],Number(portion.dataset.smartPortion));
+        renderReview(snapshot,"已依原估算調整份量，請再核對烹調用油與實際食用量。",{scroll:false});
+      }else if(remove&&row){
+        const snapshot=getRows();if(snapshot.length===1){correctionStatus.textContent="至少要留一項食物；也可以返回重新辨識。";return;}
+        correctionUndo=snapshot;
+        renderReview(snapshot.filter((_,index)=>index!==Number(row.dataset.smartIndex)),"已移除指定食物，原紀錄尚未儲存。",{scroll:false});
+      }else if(event.target.closest("[data-smart-add]")){
+        const snapshot=getRows();if(snapshot.length>=30){correctionStatus.textContent="單餐最多可放 30 項食物。";return;}
+        correctionUndo=snapshot;
+        renderReview([...snapshot,blankItem("")],"已新增空白食物項目，請補上食物名稱及食用份量。",{scroll:false});
+        review.querySelector('.msj-smart-item:last-child [data-key="food_name"]')?.focus();
+      }else if(event.target.closest("[data-smart-undo]")&&correctionUndo){
+        const previous=correctionUndo;correctionUndo=null;
+        renderReview(previous,"已還原上一步的食物項目。",{scroll:false});
+      }
+    });
     const summary = reviewForm.querySelector(".msj-smart-summary");
     const showSummary = () => {
       const items = getRows();
       const total = key => items.every(item => item[key] !== null) ? nf.format(items.reduce((s,item)=>s+item[key],0)) : "資料不完整";
-      summary.textContent = `合計熱量 ${total("calories")} kcal · 蛋白質 ${total("protein_g")} g`;
+      summary.textContent = `這餐合計 ${total("calories")} kcal · 蛋白質 ${total("protein_g")} g`;
     };
     function setNutrition(row, update) {
       const keys = ["serving_weight_g", ...fields];
@@ -673,6 +798,11 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
     }
     reviewForm.addEventListener("input", event => {
       const key = event.target.dataset.key;
+      if(key) reviewRevision++;
+      if(event.target.id==='msjMealCorrection') {
+        correctionText=event.target.value;
+        persistDraft(getRows());
+      }
       if (key === "quantity" || key === "food_name") {
         const row = event.target.closest(".msj-smart-item");
         if (row) {
@@ -682,6 +812,7 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
           const updated = recalculateServing(original, name, quantity);
           const message = row.querySelector("[data-smart-portion-status]");
           setNutrition(row, updated);
+          message.hidden=false;
           row.dataset.smartEstimate = updated ? "scaled" : "needs-review";
           if (updated && quantity.trim() === String(original.quantity || "").trim() && name.trim() === String(original.food_name || "").trim()) {
             message.textContent = "目前使用辨識時的份量與營養值。";
@@ -695,7 +826,9 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
         const row = event.target.closest(".msj-smart-item");
         if (row) {
           row.dataset.smartEstimate = "manual";
-          row.querySelector("[data-smart-portion-status]").textContent = "已手動調整營養值；儲存前請確認各欄位符合目前份量。";
+          const message=row.querySelector("[data-smart-portion-status]");
+        message.hidden=false;
+        message.textContent = "已手動調整營養值；儲存前請確認各欄位符合目前份量。";
         }
       }
       showSummary();
@@ -710,6 +843,7 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
       const name = row.querySelector('[data-key="food_name"]').value.trim();
       const quantity = row.querySelector('[data-key="quantity"]').value.trim();
       const rowStatus = row.querySelector("[data-smart-portion-status]");
+      rowStatus.hidden=false;
       if (!name || !quantity) {
         rowStatus.textContent = "請先填食物名稱與實際份量，例如『白飯、兩口』。";
         return;
@@ -837,7 +971,9 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
       const shareNote = share
         ? `桌菜分食：${share.count ? share.count + " 人" : "人數未指定"} · ${share.mode === "average" ? "未明說的菜色暫以平均分食估算" : "依本人描述估算"}。每項數值應為你吃的份量，請留意取菜比例及烹調用油。`
         : "";
-      renderReview(mapped, [shareNote, file ? "照片已縮小後分析；料理用油、食材份量可能有誤差，請確認。" : "AI 營養數值是估算；份量可保留「半根、一小碗」，不必填克數。"].filter(Boolean).join(" "));
+      reviewMealType=null;reviewMealTime=null;correctionUndo=null;correctionText="";
+      const aiNote=file ? String(result?.analysis?.note || "").slice(0,300) : String(result?.note || "").slice(0,300);
+      renderReview(mapped, [shareNote, aiNote, file ? "照片辨識份量與用油需確認。" : "AI 數值是估算；可用半碗、兩口等日常描述。"].filter(Boolean).join(" "));
       say("辨識完成，確認後儲存。");
     } catch (error) {
       logIssue(file?'photo':'text',error);
@@ -852,4 +988,5 @@ export function mountSmartMeal({ db, uid, getDate, onSaved }) {
 
 // 供簡易單元測試使用：不暴露使用者資料。
 export const __test = { commonPortion, localInterpret, splitFoods, identifyMemory, sharingContext,
-  servingParts, servingRatio, recalculateServing, portionGramEstimate, validGTIN, portionFromProduct, portionFromLabel };
+  servingParts, servingRatio, recalculateServing, portionGramEstimate, validGTIN, portionFromProduct, portionFromLabel,
+  scaleMealItem, applyCorrectionOperations };

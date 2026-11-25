@@ -87,3 +87,48 @@
 .msj-ai-issues summary{font-size:12px;font-weight:650;cursor:pointer;min-height:24px}
 .msj-ai-issues [data-ai-issue-list]{margin-top:10px;display:grid;gap:5px}
 .msj-ai-issues p{font-size:11px;line-height:1.5;margin:0;padding:4px 0;border-bottom:1px solid #f0e7eb}
+
+/* 智慧拍照 2.0：只把使用者需要確認的內容放在主要視線上。 */
+.msj-photo2-correction{margin:15px 0 13px;padding:14px;border:1px solid #e8dbe6;border-radius:17px;background:linear-gradient(155deg,#fff,#f9f3f9)}
+.msj-photo2-correction>label{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap;color:#634c66;font-size:14px}
+.msj-photo2-correction>label small{font-size:11px;color:#917b8c;font-weight:400}
+.msj-photo2-correction textarea{width:100%;margin-top:9px;min-height:64px;padding:11px 12px;border:1px solid #e7dae4;border-radius:11px;background:#fff;resize:vertical;font-size:16px;line-height:1.55;color:#514450}
+.msj-photo2-correction-row{display:flex;gap:10px;align-items:center;justify-content:space-between;margin-top:9px}
+.msj-photo2-correction-row span{color:#8c7c89;font-size:11px;line-height:1.4}
+.msj-photo2-correction-row button{min-height:44px;min-width:100px;padding:10px 13px;border:0;border-radius:11px;background:#735b78;color:#fff;font-weight:700;font-size:13px;cursor:pointer}
+.msj-photo2-correction-row button:disabled{opacity:.6;cursor:wait}
+.msj-photo2-correction [data-smart-correct-status]{min-height:0;color:#806b7b;font-size:12px;line-height:1.55;margin:9px 0 0}
+.msj-photo2-correction [data-smart-correct-status]:empty{display:none}
+.msj-smart-item{gap:9px;padding:14px;border-color:#ede3ea;box-shadow:0 3px 14px rgba(91,65,87,.035)}
+.msj-smart-item-title{align-items:flex-start}
+.msj-smart-item-title b{font-size:14px;line-height:1.5}
+.msj-photo2-confidence{font-size:10px;font-style:normal;font-weight:600;color:#80647e;background:#f4edf4;padding:3px 7px;border-radius:999px;margin-left:4px;white-space:nowrap}
+.msj-photo2-remove{border:0;border-radius:8px;min-height:36px;padding:6px 9px;background:#f9f2f4;color:#95687f;font-size:12px;font-weight:650;cursor:pointer}
+.msj-photo2-source{display:block;margin:-6px 0 0;color:#928190;font-size:11px;line-height:1.4}
+.msj-photo2-portions{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.msj-photo2-portions span{flex:1;font-size:11px;color:#887985;min-width:95px}
+.msj-photo2-portions button{background:#fcf9fc;border:1px solid #ded0df;border-radius:11px;color:#745a73;padding:8px 11px;min-width:65px;min-height:42px;font-size:12px;font-weight:700;cursor:pointer}
+.msj-photo2-portions button:active{background:#eee2ef}
+.msj-photo2-item-actions{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 2px}
+.msj-photo2-item-actions button{min-height:44px;border:1px solid #e5d6e2;border-radius:12px;background:#fff;color:#745e74;padding:9px 13px;font-size:13px;font-weight:700;cursor:pointer}
+.msj-photo2-item-actions button[hidden]{display:none}
+.msj-smart-review-head strong{font-size:17px}
+.msj-smart-review-actions{margin-top:16px}
+.msj-smart-review-actions .msj-smart-save{font-size:15px;min-height:48px}
+.msj-photo2-correction button:focus-visible,.msj-photo2-item-actions button:focus-visible,.msj-photo2-remove:focus-visible,.msj-photo2-portions button:focus-visible{outline:2px solid #87648e;outline-offset:2px}
+@media(max-width:380px){.msj-photo2-correction{padding:12px}.msj-photo2-correction-row span{font-size:10px}.msj-photo2-correction-row button{min-width:93px}.msj-photo2-portions span{flex-basis:100%}}
+/* 摘要優先：詳細編輯折疊，避免便當五、六種食物造成超長頁面。 */
+.msj-photo2-glance{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;font-size:12px;line-height:1.55;color:#897887}
+.msj-photo2-glance>span:first-child{max-width:100%;overflow-wrap:anywhere}
+.msj-photo2-glance strong{font-size:14px;color:#5d495b;font-variant-numeric:tabular-nums}
+.msj-smart-item{gap:10px}
+.msj-smart-item>.msj-photo2-edit{border-top:1px solid #efe6ed;padding-top:7px;margin:0}
+.msj-photo2-edit>summary{margin:0!important;min-height:33px;display:flex;align-items:center;gap:6px;font-size:12px;font-weight:650;color:#7b6580;list-style:none}
+.msj-photo2-edit>summary::-webkit-details-marker{display:none}
+.msj-photo2-edit>summary::after{content:'⌄';margin-left:auto;font-size:18px;line-height:1}
+.msj-photo2-edit[open]>summary::after{content:'⌃'}
+.msj-photo2-edit[open]>.msj-photo2-source{margin:4px 0 9px}
+.msj-photo2-edit>label{margin:8px 0}
+.msj-photo2-edit>.msj-smart-reestimate{margin-top:12px}
+.msj-photo2-edit>details{margin-top:12px}
+.msj-smart-portion-status[hidden]{display:none}
