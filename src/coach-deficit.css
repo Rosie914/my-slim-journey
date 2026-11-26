@@ -28,3 +28,24 @@
 .coach-deficit .msj-deficit-day-row strong small{font-size:10px;color:#8c7b8b;font-weight:500}
 .coach-deficit .msj-deficit-day-row.pending strong{color:#aaa0aa}
 @media(max-width:360px){.coach-deficit .msj-deficit-day-row{grid-template-columns:48px minmax(0,1fr) 75px;gap:6px}.coach-deficit .msj-deficit-day-row strong{font-size:11px}.coach-deficit .msj-deficit-day-meter small{font-size:9px}}
+
+/* Coach · numbers belong next to two comparable bars, not in a wrapping equation. */
+.coach-deficit .msj-balance-title{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:4px 10px;margin-bottom:12px;}
+.coach-deficit .msj-balance-title>b{font-size:14px;color:#644e63}
+.coach-deficit .msj-balance-title>small{font-size:11px;color:#968597}
+.coach-deficit .msj-balance-chart{display:grid;gap:15px;margin:12px 0 14px;}
+.coach-deficit .msj-balance-item{min-width:0;display:grid;gap:7px;}
+.coach-deficit .msj-balance-caption{display:flex;justify-content:space-between;align-items:baseline;gap:9px;font-size:13px;}
+.coach-deficit .msj-balance-caption>span{color:#776777;}
+.coach-deficit .msj-balance-caption b{font-size:17px;color:#634d65;font-weight:750;font-variant-numeric:tabular-nums;white-space:nowrap;}
+.coach-deficit .msj-balance-caption small{font-size:11px;font-weight:450;color:#8c7e8d;}
+.coach-deficit .msj-balance-track{width:100%;height:13px;background:#f0eaf0;border-radius:999px;overflow:hidden;}
+.coach-deficit .msj-balance-track i{display:block;height:100%;border-radius:999px;}
+.coach-deficit .msj-balance-burn{background:linear-gradient(90deg,#ceabda,#ad8ac3)}
+.coach-deficit .msj-balance-eat{background:linear-gradient(90deg,#eed9e3,#d6aec8)}
+.coach-deficit .msj-balance-result{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-radius:13px;background:linear-gradient(125deg,#f9f0f7,#f2eaf6);}
+.coach-deficit .msj-balance-result>span{font-size:12px;color:#75657a;}
+.coach-deficit .msj-balance-result strong{font-size:clamp(21px,5.5vw,26px);font-weight:750;font-variant-numeric:tabular-nums;letter-spacing:-.03em;color:#77517d;white-space:nowrap;}
+.coach-deficit .msj-balance-result strong small{font-size:12px;color:#887389;font-weight:450;letter-spacing:0;}
+.coach-deficit .msj-balance-caution{margin:10px 0 0!important;font-size:12px;color:#918091;line-height:1.6;}
+@media(max-width:365px){.coach-deficit .msj-balance-result{padding:10px}.coach-deficit .msj-balance-result strong{font-size:20px}.coach-deficit .msj-balance-caption b{font-size:15px}}

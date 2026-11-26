@@ -613,7 +613,7 @@ async function loadHomeActivityCalories(userId, date) {
   const pageSize = 500;
   for (let offset = 0; ; offset += pageSize) {
     const { data, error } = await supabase.from("activity_logs")
-      .select("id,activity_type,calories_burned,steps,duration_minutes,logged_at,notes,created_at,total_calories")
+      .select("id,activity_type,calories_burned,steps,duration_minutes,logged_at,notes,created_at,total_calories,resting_calories")
       .eq("user_id", userId).gte("logged_at", from).lt("logged_at", to)
       .order("logged_at").range(offset, offset + pageSize - 1);
     if (error) throw error;
@@ -623,15 +623,21 @@ async function loadHomeActivityCalories(userId, date) {
   // Summary Move calories already include exercise. When no summary exists,
   // use de-duplicated workouts only. Never add both together.
   const days = summarizeDailyMap(entries);
-  // Keep Apple TOTAL separate from Move and individual workout energy.
-  // This is the sum of resting + active calories, and is not a Move value.
+  // Apple TOTAL = resting + active. Keep Move and workout separate so exercise is not added twice.
+  // A daily summary may arrive with steps only: that must not be mistaken for an energy sync.
   for (const row of entries) {
-    if (row.activity_type !== 'Apple 健康每日摘要' || row.total_calories == null) continue;
-    const total = Number(row.total_calories);
-    if (!Number.isFinite(total) || total < 0) continue;
+    if (row.activity_type !== 'Apple 健康每日摘要') continue;
+    const valid = value => value === null || value === undefined || value === '' ? null :
+      Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : null;
+    const resting = valid(row.resting_calories);
+    const active = valid(row.calories_burned);
+    const storedTotal = valid(row.total_calories);
+    const total = storedTotal ?? (active !== null && resting !== null ? active + resting : null);
     const day = homeDate.format(new Date(row.logged_at));
     const previous = days.get(day) || { calories: null, steps: null, source: null };
-    days.set(day, { ...previous, totalCalories: total });
+    days.set(day, { ...previous, totalCalories: total, restingCalories: resting,
+      // Don't assume individual workout calories are Apple Move ring calories.
+      activeCalories: active, totalSource: total === null ? null : 'apple' });
   }
   return { ...(days.get(date) || { calories: null, steps: null, source: null }), days };
 }
@@ -646,32 +652,45 @@ function homeActivityTarget(goal) {
 
 function renderHomeEnergyPlan(goal, recordedActivity, date) {
   const isToday = date === homeDate.format(new Date());
-  const dayLabel = isToday ? "今日" : date.slice(5).replace("-", "/");
-  const isHealth = recordedActivity?.source === "health";
-  const appleTotal = recordedActivity?.totalCalories != null && Number.isFinite(Number(recordedActivity.totalCalories)) ? Number(recordedActivity.totalCalories) : null;
-  const raw = recordedActivity?.calories;
-  const actual = raw != null && Number.isFinite(Number(raw)) ? Math.max(0, Number(raw)) : null;
-  // An exercise-only reference must not reuse the whole-day Move energy target.
-  // This is an optional gentle guide, not a required calorie burn or food allowance.
-  const target = isHealth ? homeActivityTarget(goal) : 150;
-  const steps = recordedActivity === undefined ? "暫時無法讀取" :
-    recordedActivity?.steps == null ? "尚未同步" : homeNumber.format(Math.round(recordedActivity.steps)) + " 步";
-  const percent = actual != null && target ? Math.round(actual / target * 100) : null;
-  const progress = actual != null && target ? Math.min(100, actual / target * 100) : 0;
-  const sourceText = isHealth ? "Apple 健康 · 全天活動熱量" : appleTotal !== null ? "Apple 健康 · 全天總消耗已同步" : "運動紀錄 · 不含日常活動";
+  const dayLabel = isToday ? "今天" : date.slice(5).replace("-", "/");
+  const valid = value => value == null || value === '' || !Number.isFinite(Number(value)) || Number(value) < 0 ? null : Number(value);
+  const total = valid(recordedActivity?.totalCalories);
+  const rawActive = valid(recordedActivity?.activeCalories);
+  const restingFromHealth = valid(recordedActivity?.restingCalories);
+  const move = rawActive ?? (recordedActivity?.source === 'health' ? valid(recordedActivity.calories) : null);
+  // Only a daily Move sample may be used to split Apple TOTAL. Recorded workouts are a subset, not another segment.
+  const staticEnergy = total !== null && restingFromHealth !== null && restingFromHealth <= total ? restingFromHealth :
+    total !== null && move !== null && move <= total ? Math.max(0,total - move) : null;
+  const activeEnergy = total !== null && staticEnergy !== null ? Math.max(0,total - staticEnergy) : null;
+  const workout = valid(recordedActivity?.workoutCalories);
+  const steps = valid(recordedActivity?.steps);
+  const workoutTarget = homeActivityTarget(goal) ?? 150;
+  const validSplit = total !== null && total > 0 && staticEnergy !== null && activeEnergy !== null;
+  const fmtKcal = x => x === null ? '—' : homeNumber.format(Math.round(x));
+  const stack = validSplit ? `<div class="msj-energy-breakdown" role="img" aria-label="Apple 全天總消耗 ${fmtKcal(total)} kcal，靜態 ${fmtKcal(staticEnergy)} kcal，活動 ${fmtKcal(activeEnergy)} kcal；已記錄運動不再相加">
+      <div class="msj-energy-breakdown-head"><strong>全天熱量組成</strong><small>靜態＋活動＝TOTAL</small></div>
+      <div class="msj-energy-breakdown-bar" aria-hidden="true"><span class="msj-energy-resting" style="width:${Math.max(0,Math.min(100,staticEnergy/total*100))}%"></span><span class="msj-energy-active" style="width:${Math.max(0,Math.min(100,activeEnergy/total*100))}%"></span></div>
+      <div class="msj-energy-breakdown-legend"><span><i class="msj-resting-dot"></i>靜態 ${fmtKcal(staticEnergy)} kcal</span><span><i class="msj-active-dot"></i>活動 ${fmtKcal(activeEnergy)} kcal</span></div>
+    </div>` : total !== null
+      ? `<p class="msj-energy-data-note">已取得 Apple TOTAL ${fmtKcal(total)} kcal；活動／靜態熱量尚未同步，暫不猜測各自比例。</p>`
+      : `<p class="msj-energy-data-note">Apple TOTAL 尚未寫入。請確認捷徑上傳的 <code>days</code> 清單包含 <code>totalCalories</code>，重新執行後按「更新」。</p>`;
+  const workoutNote = workout === null ? '尚無單次運動消耗紀錄' :
+    move !== null && total !== null && workout <= activeEnergy + 5
+      ? `其中已記錄運動 ${fmtKcal(workout)} kcal，包含於活動消耗，不額外相加。`
+      : `已記錄運動 ${fmtKcal(workout)} kcal，僅供參考，不直接加到 Apple TOTAL。`;
   return `<section class="card msj-activity-card msj-activity-compact msj-tap-card">
-    <div class="msj-activity-heading">
-      <div><h2>每日活動 <span class="msj-card-hint">查看明細 ›</span></h2><p>${dayLabel} · ${sourceText}</p></div>
+    <div class="msj-activity-heading"><div><h2>每日活動 <span class="msj-card-hint">查看明細 ›</span></h2><p>${dayLabel} · Apple Fitness 與運動紀錄</p></div>
       <div class="msj-activity-actions"><button type="button" id="homeHealthShortcut" class="home-shortcut" aria-label="執行 Apple Fitness 捷徑">同步健康</button><button type="button" id="homeHealthRefresh" class="home-refresh" aria-label="重新讀取已同步資料">↻ 更新</button></div>
     </div>
-    <div class="msj-activity-total-energy${appleTotal === null ? ' is-missing' : ''}"><span>${isToday ? "今日目前累積總消耗" : "全天總消耗"}<small>Apple Fitness · TOTAL（靜態＋活動）</small></span><strong>${appleTotal === null ? '尚未同步' : homeNumber.format(Math.round(appleTotal)) + ' <small>kcal</small>'}</strong></div>
-    <div class="msj-activity-step-tile"><div><small>${isToday ? "今日步數" : "當日步數"}</small><strong>${steps}</strong></div><span>Apple 健康</span></div>
-    <div class="msj-activity-progress-title"><strong>${isHealth ? "全天活動熱量" : "已記錄運動消耗"}</strong><span>${percent === null ? "尚無紀錄" : percent + "%"}</span></div>
-    <div class="msj-activity-track" role="progressbar" aria-label="${isHealth ? "全天活動" : "已記錄運動"}消耗進度" aria-valuemin="0" aria-valuemax="${target}" aria-valuenow="${actual == null ? 0 : Math.min(actual,target)}"><span class="msj-activity-fill" style="width:${progress}%"></span></div>
-    <div class="msj-activity-progress-foot"><span>${actual === null ? "尚無消耗紀錄" : homeNumber.format(Math.round(actual)) + " kcal 已記錄"}</span><span>App 參考 ${homeNumber.format(target)} kcal</span></div>
-    <p class="msj-activity-hint">${isHealth ? "Move 已包含在 TOTAL；App 參考目標可能與 Apple 圓環不同。" : "運動消耗僅供參考，不必每天達標。"}</p>
-    <p class="msj-activity-source-note">點整張卡片可查看當日運動項目與本週活動；完整圖表放在運動頁。</p>
-    <p class="home-note msj-activity-help" id="homeHealthStatus">同步健康會啟動捷徑；「更新」僅讀取已上傳的資料。</p>
+    <div class="msj-activity-three-stats" aria-label="當日活動摘要">
+      <div class="msj-activity-stat msj-activity-stat-total"><small>${isToday?'目前總消耗':'全天總消耗'}</small><strong>${fmtKcal(total)}</strong><span>${total === null ? '待同步' : 'kcal · Apple'}</span></div>
+      <div class="msj-activity-stat msj-activity-stat-steps"><small>當日步數</small><strong>${steps === null ? '—' : homeNumber.format(Math.round(steps))}</strong><span>${steps === null ? '待同步' : '步'}</span></div>
+      <div class="msj-activity-stat msj-activity-stat-workout"><small>運動消耗</small><strong>${fmtKcal(workout)}</strong><span>${workout === null ? '未記錄' : 'kcal · 紀錄'}</span></div>
+    </div>
+    ${stack}
+    <p class="msj-activity-workout-note">${workoutNote}</p>
+    ${workout !== null ? `<p class="msj-activity-goal-note">運動參考 ${homeNumber.format(workoutTarget)} kcal · 約 ${Math.round(workout/workoutTarget*100)}%，不是每日必須達標的目標。</p>` : ''}
+    <p class="home-note msj-activity-help" id="homeHealthStatus">「同步健康」執行 Apple Fitness 捷徑；「更新」讀取已上傳資料。</p>
     <button type="button" data-tab="activity" class="msj-stretch-link" aria-label="查看所選日期的運動紀錄"></button>
   </section>`;
 }
