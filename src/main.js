@@ -613,7 +613,7 @@ async function loadHomeActivityCalories(userId, date) {
   const pageSize = 500;
   for (let offset = 0; ; offset += pageSize) {
     const { data, error } = await supabase.from("activity_logs")
-      .select("id,activity_type,calories_burned,steps,duration_minutes,logged_at,notes,created_at")
+      .select("id,activity_type,calories_burned,steps,duration_minutes,logged_at,notes,created_at,total_calories")
       .eq("user_id", userId).gte("logged_at", from).lt("logged_at", to)
       .order("logged_at").range(offset, offset + pageSize - 1);
     if (error) throw error;
@@ -623,6 +623,16 @@ async function loadHomeActivityCalories(userId, date) {
   // Summary Move calories already include exercise. When no summary exists,
   // use de-duplicated workouts only. Never add both together.
   const days = summarizeDailyMap(entries);
+  // Keep Apple TOTAL separate from Move and individual workout energy.
+  // This is the sum of resting + active calories, and is not a Move value.
+  for (const row of entries) {
+    if (row.activity_type !== 'Apple 健康每日摘要' || row.total_calories == null) continue;
+    const total = Number(row.total_calories);
+    if (!Number.isFinite(total) || total < 0) continue;
+    const day = homeDate.format(new Date(row.logged_at));
+    const previous = days.get(day) || { calories: null, steps: null, source: null };
+    days.set(day, { ...previous, totalCalories: total });
+  }
   return { ...(days.get(date) || { calories: null, steps: null, source: null }), days };
 }
 
@@ -638,6 +648,7 @@ function renderHomeEnergyPlan(goal, recordedActivity, date) {
   const isToday = date === homeDate.format(new Date());
   const dayLabel = isToday ? "今日" : date.slice(5).replace("-", "/");
   const isHealth = recordedActivity?.source === "health";
+  const appleTotal = recordedActivity?.totalCalories != null && Number.isFinite(Number(recordedActivity.totalCalories)) ? Number(recordedActivity.totalCalories) : null;
   const raw = recordedActivity?.calories;
   const actual = raw != null && Number.isFinite(Number(raw)) ? Math.max(0, Number(raw)) : null;
   // An exercise-only reference must not reuse the whole-day Move energy target.
@@ -651,13 +662,14 @@ function renderHomeEnergyPlan(goal, recordedActivity, date) {
   const history = days.map(day => ({ day, calories: recordedActivity?.days?.get(day)?.calories ?? null }));
   const chart = trendLineChart(history.map(item => ({date:item.day,value:item.calories})),
     {unit:'kcal',target,label:'運動與活動消耗',color:'#a78ac5'});
-  const sourceText = isHealth ? "Apple 健康 · 全天活動熱量" : "運動紀錄 · 不含日常活動";
+  const sourceText = isHealth ? "Apple 健康 · 全天活動熱量" : appleTotal !== null ? "Apple 健康 · 全天總消耗已同步" : "運動紀錄 · 不含日常活動";
   return `<section class="card msj-activity-card msj-activity-compact msj-tap-card">
     <div class="msj-activity-heading">
       <div><h2>每日活動 <span class="msj-card-hint">查看明細 ›</span></h2><p>${dayLabel} · ${sourceText}</p></div>
-      <div class="msj-activity-actions"><button type="button" id="homeHealthShortcut" class="home-shortcut" aria-label="執行 Find Health Samples Where 捷徑">同步健康</button><button type="button" id="homeHealthRefresh" class="home-refresh" aria-label="重新讀取已同步資料">↻ 更新</button></div>
+      <div class="msj-activity-actions"><button type="button" id="homeHealthShortcut" class="home-shortcut" aria-label="執行 Apple Fitness 捷徑">同步健康</button><button type="button" id="homeHealthRefresh" class="home-refresh" aria-label="重新讀取已同步資料">↻ 更新</button></div>
     </div>
     <div class="msj-activity-step-tile"><div><small>${isToday ? "今日步數" : "當日步數"}</small><strong>${steps}</strong></div><span>Apple 健康</span></div>
+    ${appleTotal !== null ? `<div class="msj-activity-total-energy"><span>${isToday ? "今日目前累積總消耗" : "全天總消耗"}<small>Apple TOTAL · 靜態＋活動</small></span><strong>${homeNumber.format(Math.round(appleTotal))} <small>kcal</small></strong></div>` : ''}
     <div class="msj-activity-progress-title"><strong>${isHealth ? "全天活動熱量" : "已記錄運動消耗"}</strong><span>${percent === null ? "尚無紀錄" : percent + "%"}</span></div>
     <div class="msj-activity-track" role="progressbar" aria-label="${isHealth ? "全天活動" : "已記錄運動"}消耗進度" aria-valuemin="0" aria-valuemax="${target}" aria-valuenow="${actual == null ? 0 : Math.min(actual,target)}"><span class="msj-activity-fill" style="width:${progress}%"></span></div>
     <div class="msj-activity-progress-foot"><span>${actual === null ? "尚無消耗紀錄" : homeNumber.format(Math.round(actual)) + " kcal 已記錄"}</span><span>參考 ${homeNumber.format(target)} kcal</span></div>
@@ -876,17 +888,17 @@ function renderAppShell(content) {
       <details class="account-data"><summary>資料備份</summary><p>下載你的個人設定、目標階段、飲食、體重、運動與常吃食物紀錄。照片檔案不包含在備份中。</p><button id="exportData" type="button">下載我的資料</button><p id="exportStatus" role="status" aria-live="polite"></p></details>
       <details class="account-data health-sync" id="healthSyncPanel"><summary>Apple 健康自動同步</summary>
         <p>網站不能直接讀取 iPhone「健康」資料。完成捷徑設定後，可同步每日步數、活動熱量與運動項目；資料會寫入你的運動紀錄。</p>
-        <p class="health-sync-notice"><strong>目前進度：</strong>每日步數已同步。Apple 健康活動熱量與捷徑運動項目尚未完整同步；沿用「Find Health Samples Where」即可，不必刪除、改名或建立副本。</p>
-        <ol><li>先按下方按鈕建立同步金鑰並複製保存。金鑰只顯示一次；不要貼到聊天或分享給別人。</li><li>依照下方步驟修改現有的 <code>Find Health Samples Where</code>：保留步數查詢，移除 7 天加總，改為逐日清單並加入上傳。</li><li>手動執行後，只有看到 <code>ok: true</code> 且本頁出現「最近成功同步」，才算完成；之後再設定每日自動化。</li></ol>
+        <p class="health-sync-notice"><strong>目前進度：</strong>每日步數已同步。Apple 健康活動熱量與捷徑運動項目尚未完整同步；沿用「Apple Fitness」即可，不必刪除、改名或建立副本。</p>
+        <ol><li>先按下方按鈕建立同步金鑰並複製保存。金鑰只顯示一次；不要貼到聊天或分享給別人。</li><li>依照下方步驟修改現有的 <code>Apple Fitness</code>：保留步數查詢，移除 7 天加總，改為逐日清單並加入上傳。</li><li>手動執行後，只有看到 <code>ok: true</code> 且本頁出現「最近成功同步」，才算完成；之後再設定每日自動化。</li></ol>
         <section class="health-sync-automation" aria-label="自動同步與一鍵同步設定">
           <h3>一鍵同步與定時自動化</h3>
-          <p>先確認現有 <code>Find Health Samples Where</code> 捷徑能成功上傳，再設定自動化。以下操作不會自動建立 iPhone 自動化。</p>
-          <button type="button" id="settingsHealthShortcut" class="health-shortcut-launch">開啟 Find Health Samples Where 捷徑</button>
+          <p>先確認現有 <code>Apple Fitness</code> 捷徑能成功上傳，再設定自動化。以下操作不會自動建立 iPhone 自動化。</p>
+          <button type="button" id="settingsHealthShortcut" class="health-shortcut-launch">開啟 Apple Fitness 捷徑</button>
           <p id="settingsShortcutStatus" role="status" aria-live="polite"></p>
           <ol>
             <li>開啟 iPhone「捷徑」App →「自動化」→「＋」→「特定時間」。</li>
             <li>設定每天 <strong>08:00</strong>、<strong>12:30</strong>、<strong>20:30</strong> 各一個自動化（時間可自行調整）。</li>
-            <li>選擇「立即執行」（若系統提供），加入「執行捷徑」動作，指定既有的 <code>Find Health Samples Where</code>。</li>
+            <li>選擇「立即執行」（若系統提供），加入「執行捷徑」動作，指定既有的 <code>Apple Fitness</code>。</li>
             <li>第一次執行請允許「健康」讀取與網路存取權限。回到 App 按「更新」檢查同步時間和步數。</li>
           </ol>
           <p>iOS 版本、裝置鎖定及健康權限可能影響是否能無提示執行；若自動化失敗，請先手動執行捷徑排除問題。每日定時同步不是即時同步。</p>
@@ -897,7 +909,7 @@ function renderAppShell(content) {
         <details class="health-sync-guide"><summary>先同步步數：iPhone 捷徑步驟</summary>
           <ol>
             <li>在本頁按「建立捷徑同步金鑰」，點「複製金鑰」。這串金鑰等下放進捷徑，不要貼到聊天。</li>
-            <li>在 Shortcuts 打開既有的 <code>Find Health Samples Where</code>。沿用這個名稱和捷徑，不要刪除或另建副本。保留 <code>Find Health Samples</code>：<code>Type is Steps</code>、<code>Start Date is in the last 7 days</code>、<code>Group by Day</code>；刪除 <code>Calculate the Sum</code>，因為它會把 7 天合成一個總數。</li>
+            <li>在 Shortcuts 打開既有的 <code>Apple Fitness</code>。沿用這個名稱和捷徑，不要刪除或另建副本。保留 <code>Find Health Samples</code>：<code>Type is Steps</code>、<code>Start Date is in the last 7 days</code>、<code>Group by Day</code>；刪除 <code>Calculate the Sum</code>，因為它會把 7 天合成一個總數。</li>
             <li>在 <code>Find Health Samples</code> 上方加入空的 <code>List</code>，再加入 <code>Set Variable</code>，命名為 <code>Days</code>，將空清單存入它。把這兩個動作移到查詢步數之前。</li>
             <li>在查詢步數後加入 <code>Repeat with Each</code>，輸入選 <code>Health Samples</code>。在 Repeat 內依序加入：<code>Get Details of Health Sample</code>（選 <code>Start Date</code>，來源 <code>Repeat Item</code>）；<code>Format Date</code>（日期格式 <code>Custom</code>，格式填 <code>yyyy-MM-dd</code>）；再加入 <code>Get Details of Health Sample</code>（選 <code>Value</code>，來源仍是 <code>Repeat Item</code>）。</li>
             <li>仍在 Repeat 內加入 <code>Dictionary</code>，建立 <code>date</code>＝格式化日期、<code>steps</code>＝步數 Value；再加入 <code>Add to Variable</code>，選 <code>Days</code>。Repeat 結束後，<code>Quick Look</code> 檢查 Days，應是一日一筆的字典清單。</li>
@@ -1146,9 +1158,9 @@ async function showApp() {
   shortcutLaunch.forEach(button => {
     button.onclick = () => {
       const status = app.querySelector("#settingsShortcutStatus") || app.querySelector("#homeHealthStatus");
-      if (status) status.textContent = "正在開啟 Find Health Samples Where。捷徑執行完成後，返回此 App 會重新讀取資料；若沒有自動更新，請按「更新」。";
+      if (status) status.textContent = "正在開啟 Apple Fitness。捷徑執行完成後，返回此 App 會重新讀取資料；若沒有自動更新，請按「更新」。";
       window.__msjAwaitingShortcutReturn = true;
-      window.location.href = "shortcuts://run-shortcut?name=Find%20Health%20Samples%20Where";
+      window.location.href = "shortcuts://run-shortcut?name=Apple%20Fitness";
     };
   });
   const homeHealthRefresh = app.querySelector("#homeHealthRefresh");

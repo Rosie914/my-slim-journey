@@ -42,3 +42,11 @@
 @media(prefers-reduced-motion:reduce){.home-dashboard .msj-tap-card{transition:none}}
 
 .home-dashboard .msj-activity-compact .msj-activity-footer{justify-content:flex-end;}
+
+/* Apple Fitness TOTAL is separate from the Move ring and exercise energy. */
+.home-dashboard .msj-activity-total-energy{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 14px;margin:10px 0 14px;border:1px solid #ebdfe9;border-radius:16px;background:linear-gradient(120deg,#fffafc,#f8f3fb);color:#665367;}
+.home-dashboard .msj-activity-total-energy span{display:grid;gap:2px;font-weight:700;font-size:13px;}
+.home-dashboard .msj-activity-total-energy span small{font-size:11px;font-weight:400;color:#8c7a8d;}
+.home-dashboard .msj-activity-total-energy strong{white-space:nowrap;font-size:19px;font-variant-numeric:tabular-nums;}
+.home-dashboard .msj-activity-total-energy strong small{font-size:11px;font-weight:500;}
+@media(max-width:375px){.home-dashboard .msj-activity-total-energy{padding:10px;gap:7px}.home-dashboard .msj-activity-total-energy strong{font-size:17px}}

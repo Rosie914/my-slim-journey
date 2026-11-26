@@ -26,12 +26,12 @@ function renderDeficitPlan(goal) {
   </div>
   <div class="coach-deficit-details">
     <div><span>原計畫 TDEE（依活動程度）</span><b>${fmt(goal.tdee)} kcal</b></div>
-    <div><span>赤字估算用久坐基準 TDEE</span><b>${fmt(Math.round(goal.bmr * 1.2))} kcal</b></div>
+    <div><span>未同步 Apple TOTAL 時的備用 TDEE</span><b>${fmt(Math.round(goal.bmr * 1.2))} kcal</b></div>
     <div><span>每日攝取目標</span><b>${fmt(goal.calorieTarget)} kcal</b></div>
     <div><span>原計畫額外活動部分（選擇性）</span><b>${fmt(optional)} kcal</b></div>
   </div>
   ${stage}
-  <p class="coach-deficit-note">上方沿用原本減重階段的<strong>計畫值</strong>。下方實際紀錄估算採久坐基準 TDEE＋已記錄運動，避免將原計畫活動係數包含的運動重複計算；額外運動不是硬性任務。</p>`;
+  <p class="coach-deficit-note">上方沿用原本減重階段的<strong>計畫值</strong>。下方優先使用 Apple Fitness 全天 TOTAL 減飲食；尚無 TOTAL 時才用久坐基準 TDEE＋已記錄運動。Apple TOTAL 已含運動，不再重複加計；額外運動不是硬性任務。</p>`;
 }
 
 export async function mountCoachDeficit(db, uid, profile, latestWeight, referenceDate) {
@@ -65,12 +65,12 @@ export async function mountCoachDeficit(db, uid, profile, latestWeight, referenc
     + '<div class="coach-deficit-records" aria-live="polite"><p class="coach-deficit-loading">正在讀取每日飲食與運動紀錄…</p></div>';
   const records = section.querySelector(".coach-deficit-records");
   async function refreshRecords() {
-    records.innerHTML = '<p class="coach-deficit-loading">正在計算 TDEE、飲食與運動的每日／每週進度…</p>';
+    records.innerHTML = '<p class="coach-deficit-loading">正在讀取 Apple TOTAL、飲食與運動的每日／每週進度…</p>';
     try {
       const overview = await loadWeekDeficit(db, uid, goal, date);
       if (!records.isConnected) return;
       records.innerHTML = renderCoachDeficitDetails(overview)
-        + '<p class="coach-deficit-note">以下依久坐基準 TDEE、已記錄運動與飲食推算，並對照你原本的階段計畫；屬估算值，不是實際量測。</p>';
+        + '<p class="coach-deficit-note">優先依 Apple Fitness 全天總消耗減飲食估算；未同步時才採久坐基準 TDEE 加去重運動。兩者都屬估算值，並對照你原本的階段計畫。</p>';
     } catch (error) {
       console.warn("[Coach] meal history loading failed", error?.code || error?.name || "UnknownError");
       if (!records.isConnected) return;
