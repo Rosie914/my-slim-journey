@@ -50,3 +50,32 @@
 .home-dashboard .msj-activity-total-energy strong{white-space:nowrap;font-size:19px;font-variant-numeric:tabular-nums;}
 .home-dashboard .msj-activity-total-energy strong small{font-size:11px;font-weight:500;}
 @media(max-width:375px){.home-dashboard .msj-activity-total-energy{padding:10px;gap:7px}.home-dashboard .msj-activity-total-energy strong{font-size:17px}}
+
+/* 2026-11: Apple TOTAL is the main Activity energy value; Move and workouts remain distinct. */
+.home-dashboard .msj-activity-total-energy{margin-top:12px;margin-bottom:12px;background:linear-gradient(125deg,#faf3f8,#f3effa);border-color:#e9dce9;}
+.home-dashboard .msj-activity-total-energy strong{font-size:24px;color:#614c67;}
+.home-dashboard .msj-activity-total-energy.is-missing strong{font-size:13px;color:#93828f;}
+.home-dashboard .msj-activity-source-note{margin:9px 0 0;color:#8d7d89;font-size:12px;line-height:1.5;}
+.msj-activity-day-total{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 15px;margin:12px 0;border:1px solid #e9dce9;border-radius:17px;background:linear-gradient(125deg,#fbf5fa,#f5f0fb);color:#604f63;}
+.msj-activity-day-total>span{display:grid;gap:4px;min-width:0;}
+.msj-activity-day-total>span>b{font-size:14px;line-height:1.4;}
+.msj-activity-day-total>span>small{font-size:11px;color:#8c7e89;line-height:1.5;}
+.msj-activity-day-total>strong{white-space:nowrap;font-size:21px;font-variant-numeric:tabular-nums;}
+.msj-activity-day-total>strong>small{font-size:11px;font-weight:500;}
+.coach-deficit .msj-coach-energy-ledger{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin:11px 0;}
+.coach-deficit .msj-coach-energy-ledger>div{display:grid;align-content:start;min-width:0;padding:11px 8px;border:1px solid #eee4ec;border-radius:14px;background:#fff;gap:6px;}
+.coach-deficit .msj-coach-energy-ledger span{color:#84758a;font-size:11px;}
+.coach-deficit .msj-coach-energy-ledger strong{font-size:clamp(17px,4.1vw,23px);font-variant-numeric:tabular-nums;color:#614d65;letter-spacing:-.04em;white-space:nowrap;}
+.coach-deficit .msj-coach-energy-ledger strong small{font-size:10px;font-weight:500;letter-spacing:0;}
+.coach-deficit .msj-coach-energy-ledger>div>small{font-size:10px;line-height:1.4;color:#94828f;}
+.coach-deficit .msj-deficit-day-sources{display:block;font-size:11px;color:#655664;line-height:1.5;}
+.coach-deficit .msj-deficit-day-state{display:block;font-size:11px;color:#92808d;line-height:1.4;}
+.msj-coach-additional{margin:14px 0 16px;padding:0 13px;border:1px solid #eee3eb;border-radius:16px;background:#fffdfb;}
+.msj-coach-additional>summary{cursor:pointer;padding:15px 0;color:#6a5467;font-weight:650;font-size:14px;min-height:24px;}
+.msj-coach-additional[open]>summary{border-bottom:1px solid #f1eaf0;margin-bottom:12px;}
+.msj-coach-additional>:not(summary){max-width:100%;}
+@media(max-width:375px){.coach-deficit .msj-coach-energy-ledger{gap:5px}.coach-deficit .msj-coach-energy-ledger>div{padding:9px 6px}.msj-activity-day-total>strong{font-size:18px}}
+
+.msj-coach-plan-details{margin:10px 0 12px;padding:0 12px;background:rgba(255,255,255,.6);border-radius:12px;border:1px solid #eee5ec;}
+.msj-coach-plan-details>summary{padding:11px 0;min-height:22px;font-size:12px;font-weight:650;color:#806a82;cursor:pointer;}
+.msj-coach-plan-details[open]{padding-bottom:12px;}

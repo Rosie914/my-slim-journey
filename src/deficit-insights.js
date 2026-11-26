@@ -49,7 +49,8 @@ export function summarizeWeekDeficit(meals, goal, referenceDate, now = today(), 
     byActivityDay.set(date, rows);
   }
 
-  const cutoff = reference < now ? reference : now;
+  // A selected historical day only determines the detail focus; weekly status follows actual today.
+  const cutoff = now;
   const days = Array.from({ length: 7 }, (_, i) => {
     const date = shift(monday, i);
     const food = byMealDay.get(date);
@@ -136,7 +137,7 @@ const currentSummary = x => {
   const d = x.current;
   if (!d || d.future) return '尚未到日期';
   const work = d.workoutCalories == null ? '沒有已記錄運動熱量' : `已記錄運動 ${kcal(d.workoutCalories)}`;
-  if (d.isToday) return `今日已記錄飲食 ${d.intake === null ? '資料待補' : kcal(d.intake)}、${work}；今天尚未結束，暫不判定。`;
+  if (d.isToday) return `今天尚未結束：${d.totalCalories !== null ? 'Apple TOTAL 目前累積 ' + kcal(d.totalCalories) : '全天總消耗尚未完整同步'}、飲食 ${d.intake === null ? '資料待補' : kcal(d.intake)}；暫不判定整日赤字。`;
   if (d.estimate === null) return d.status;
   return d.source === 'apple_total'
     ? `Apple TOTAL ${kcal(d.totalCalories)} − 飲食 ${kcal(d.intake)} ＝ 估算赤字 ${kcal(d.estimate)}（${d.status}）`
@@ -152,24 +153,44 @@ export function renderCoachDeficitDetails(x) {
     const dataReady = estimate !== null;
     const percent = dataReady ? progress(estimate, dailyTarget) : 0;
     const value = !dataReady ? '—' : estimate < 0 ? `盈餘 ${fmt.format(-estimate)}` : `${signed(estimate)}`;
-    const label = !dataReady ? day.status : day.status;
+    const label = day.status;
     const tone = !dataReady ? 'pending' : estimate >= dailyTarget && dailyTarget > 0 ? 'met' : 'below';
-    return `<div class="msj-deficit-day-row ${tone}" aria-label="${escape(day.date)} ${escape(label)} ${dataReady ? escape(value + ' kcal') : ''}">
+    const energy = day.future ? '消耗待記錄' : day.totalCalories !== null ? `Apple TOTAL ${fmt.format(day.totalCalories)}` :
+      day.estimatedEnergy !== null ? `公式估算 ${fmt.format(day.estimatedEnergy)}` : '消耗待同步';
+    const intake = day.intake === null ? '飲食待補' : `飲食 ${fmt.format(day.intake)}`;
+    return `<div class="msj-deficit-day-row ${tone}" aria-label="${escape(day.date)} ${escape(energy)} ${escape(intake)} ${escape(label)} ${dataReady ? escape(value + ' kcal') : ''}">
       <time datetime="${day.date}">${day.date.slice(5).replace('-', '/')} <small>${weekday(day.date)}</small></time>
-      <div class="msj-deficit-day-meter"><span class="msj-deficit-day-track" aria-hidden="true"><i style="width:${percent}%"></i></span><small>${escape(label)}${dataReady ? (day.source === 'apple_total' ? ' · Apple TOTAL' : ' · 公式估算') : ''}</small></div>
+      <div class="msj-deficit-day-meter"><span class="msj-deficit-day-track" aria-hidden="true"><i style="width:${percent}%"></i></span>
+        <small class="msj-deficit-day-sources">${escape(energy)} − ${escape(intake)}</small>
+        <small class="msj-deficit-day-state">${escape(label)}${!dataReady && day.totalCalories !== null ? ' · TOTAL 已同步' : ''}</small></div>
       <strong>${dataReady ? escape(value) : '—'}<small>${dataReady ? ' kcal' : ''}</small></strong>
     </div>`;
   }).join('');
   const deduped = x.days.reduce((s, d) => s + d.suppressedCount, 0);
   const appleCount = x.days.filter(d => d.estimate !== null && d.source === 'apple_total').length;
+  const current=x.current;
+  const dayEnergy=current?.estimatedEnergy;
+  const dayIntake=current?.intake;
+  const dayEstimate=current?.estimate;
+  const displayEnergy=dayEnergy===null||dayEnergy===undefined?'—':fmt.format(dayEnergy);
+  const displayIntake=dayIntake===null||dayIntake===undefined?'—':fmt.format(dayIntake);
+  const displayDeficit=dayEstimate===null||dayEstimate===undefined?'—':signed(dayEstimate);
+  const energySource=current?.source==='apple_total'?'Apple Fitness · TOTAL':dayEnergy!=null?'TDEE＋運動估算':'尚無總消耗資料';
   return `<section class="msj-deficit-estimate">
     <div class="msj-deficit-week"><div class="msj-deficit-week-top"><b>本週估算赤字</b><span>${x.knownDays}/${x.elapsedDays} 個已結束日可估算</span></div>
       <div class="msj-deficit-total"><strong>${x.knownDays ? signed(x.knownSum) : '—'}</strong><span>／ ${fmt.format(weekly)} kcal（全週計畫）</span></div>
       <div class="msj-deficit-track" role="progressbar" aria-label="本週赤字估算進度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(weekPercent)}"><i style="width:${weekPercent}%"></i></div>
       <p>${escape(x.status)}。${x.elapsedDays && x.target > 0 ? `截至已結束日期應有參考 ${fmt.format(x.elapsedDays * x.target)} kcal。` : ''} 本週 ${appleCount} 天使用 Apple TOTAL，其餘可估算日期使用公式與已記錄運動；請確認飲食是否有漏記。</p>
     </div>
-    <div class="msj-deficit-today"><b>${escape(x.referenceDate)} · 當日估算</b><p>${escape(currentSummary(x))}</p></div>
-    <div class="msj-deficit-daily-heading"><b>每日赤字</b><small>每日計畫 ${fmt.format(dailyTarget)} kcal · 達標只代表估算</small></div>
+    <div class="msj-deficit-today"><b>${escape(x.referenceDate)} · 熱量收支</b>
+      <div class="msj-coach-energy-ledger" aria-label="當日總消耗減飲食等於估算赤字">
+        <div><span>全日總消耗</span><strong>${displayEnergy}<small> kcal</small></strong><small>${escape(energySource)}</small></div>
+        <div><span>飲食攝取</span><strong>${displayIntake}<small> kcal</small></strong><small>已記錄食物</small></div>
+        <div><span>估算赤字</span><strong>${displayDeficit}<small>${dayEstimate==null?'':' kcal'}</small></strong><small>${current?.isToday?'今天未結束':escape(current?.status||'待確認')}</small></div>
+      </div>
+      <p>${escape(currentSummary(x))}</p>
+    </div>
+    <div class="msj-deficit-daily-heading"><b>每日赤字</b><small>每一天都顯示總消耗與飲食 · 計畫 ${fmt.format(dailyTarget)} kcal</small></div>
     <div class="msj-deficit-day-chart">${rows}</div>
     <details class="msj-deficit-day-details"><summary>計算方式與資料來源</summary>
       <p><strong>首選：Apple Fitness TOTAL − 已記錄飲食。</strong> Apple TOTAL 是全天活動能量加靜態能量，已包含單次運動，不可再加上 Move 或運動熱量。</p>

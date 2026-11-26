@@ -24,14 +24,16 @@ function renderDeficitPlan(goal) {
     <div><span>每日計畫總赤字</span><strong>${fmt(daily)} <small>kcal</small></strong></div>
     <div><span>每週計畫總赤字</span><strong>${fmt(daily * 7)} <small>kcal</small></strong></div>
   </div>
+  ${stage}
+  <details class="msj-coach-plan-details"><summary>查看 TDEE 與目標計算依據</summary>
   <div class="coach-deficit-details">
     <div><span>原計畫 TDEE（依活動程度）</span><b>${fmt(goal.tdee)} kcal</b></div>
     <div><span>未同步 Apple TOTAL 時的備用 TDEE</span><b>${fmt(Math.round(goal.bmr * 1.2))} kcal</b></div>
     <div><span>每日攝取目標</span><b>${fmt(goal.calorieTarget)} kcal</b></div>
     <div><span>原計畫額外活動部分（選擇性）</span><b>${fmt(optional)} kcal</b></div>
   </div>
-  ${stage}
-  <p class="coach-deficit-note">上方沿用原本減重階段的<strong>計畫值</strong>。下方優先使用 Apple Fitness 全天 TOTAL 減飲食；尚無 TOTAL 時才用久坐基準 TDEE＋已記錄運動。Apple TOTAL 已含運動，不再重複加計；額外運動不是硬性任務。</p>`;
+  <p class="coach-deficit-note">上方沿用原本減重階段的<strong>計畫值</strong>。下方優先使用 Apple Fitness 全天 TOTAL 減飲食；尚無 TOTAL 時才用久坐基準 TDEE＋已記錄運動。Apple TOTAL 已含運動，不再重複加計；額外運動不是硬性任務。</p>
+  </details>`;
 }
 
 export async function mountCoachDeficit(db, uid, profile, latestWeight, referenceDate) {
@@ -43,6 +45,19 @@ export async function mountCoachDeficit(db, uid, profile, latestWeight, referenc
   section.className = "coach-deficit";
   section.innerHTML = planHeader(date) + '<p class="coach-deficit-loading">正在讀取減脂計畫…</p>';
   anchor.prepend(section);
+  // Existing Coach guidance also repeats the entire nutrition formula and weight/activity
+  // reports. Keep it accessible, but secondary to the deficit chart and AI coaching.
+  const aiPanel=[...anchor.children].find(node=>node.classList?.contains('coach-ai'));
+  if(aiPanel){
+    const extra=document.createElement('details');extra.className='msj-coach-additional';
+    const summary=document.createElement('summary');summary.textContent='展開營養、體重與近期紀錄分析';
+    extra.append(summary);
+    for(const node of [...anchor.childNodes]){
+      if(node===section||node===aiPanel)continue;
+      extra.append(node);
+    }
+    anchor.insertBefore(extra,aiPanel);
+  }
 
   let goal;
   try {

@@ -658,25 +658,19 @@ function renderHomeEnergyPlan(goal, recordedActivity, date) {
     recordedActivity?.steps == null ? "尚未同步" : homeNumber.format(Math.round(recordedActivity.steps)) + " 步";
   const percent = actual != null && target ? Math.round(actual / target * 100) : null;
   const progress = actual != null && target ? Math.min(100, actual / target * 100) : 0;
-  const days = Array.from({ length: 7 }, (_, i) => shiftHomeDate(date, i - 6));
-  const history = days.map(day => ({ day, calories: recordedActivity?.days?.get(day)?.calories ?? null }));
-  const chart = trendLineChart(history.map(item => ({date:item.day,value:item.calories})),
-    {unit:'kcal',target,label:'運動與活動消耗',color:'#a78ac5'});
   const sourceText = isHealth ? "Apple 健康 · 全天活動熱量" : appleTotal !== null ? "Apple 健康 · 全天總消耗已同步" : "運動紀錄 · 不含日常活動";
   return `<section class="card msj-activity-card msj-activity-compact msj-tap-card">
     <div class="msj-activity-heading">
       <div><h2>每日活動 <span class="msj-card-hint">查看明細 ›</span></h2><p>${dayLabel} · ${sourceText}</p></div>
       <div class="msj-activity-actions"><button type="button" id="homeHealthShortcut" class="home-shortcut" aria-label="執行 Apple Fitness 捷徑">同步健康</button><button type="button" id="homeHealthRefresh" class="home-refresh" aria-label="重新讀取已同步資料">↻ 更新</button></div>
     </div>
+    <div class="msj-activity-total-energy${appleTotal === null ? ' is-missing' : ''}"><span>${isToday ? "今日目前累積總消耗" : "全天總消耗"}<small>Apple Fitness · TOTAL（靜態＋活動）</small></span><strong>${appleTotal === null ? '尚未同步' : homeNumber.format(Math.round(appleTotal)) + ' <small>kcal</small>'}</strong></div>
     <div class="msj-activity-step-tile"><div><small>${isToday ? "今日步數" : "當日步數"}</small><strong>${steps}</strong></div><span>Apple 健康</span></div>
-    ${appleTotal !== null ? `<div class="msj-activity-total-energy"><span>${isToday ? "今日目前累積總消耗" : "全天總消耗"}<small>Apple TOTAL · 靜態＋活動</small></span><strong>${homeNumber.format(Math.round(appleTotal))} <small>kcal</small></strong></div>` : ''}
     <div class="msj-activity-progress-title"><strong>${isHealth ? "全天活動熱量" : "已記錄運動消耗"}</strong><span>${percent === null ? "尚無紀錄" : percent + "%"}</span></div>
     <div class="msj-activity-track" role="progressbar" aria-label="${isHealth ? "全天活動" : "已記錄運動"}消耗進度" aria-valuemin="0" aria-valuemax="${target}" aria-valuenow="${actual == null ? 0 : Math.min(actual,target)}"><span class="msj-activity-fill" style="width:${progress}%"></span></div>
-    <div class="msj-activity-progress-foot"><span>${actual === null ? "尚無消耗紀錄" : homeNumber.format(Math.round(actual)) + " kcal 已記錄"}</span><span>參考 ${homeNumber.format(target)} kcal</span></div>
-    <p class="msj-activity-hint">${isHealth ? "全天活動熱量包含運動，請勿與運動消耗相加。" : "運動消耗僅供參考，不必每天達標。"}</p>
-    <div class="msj-activity-chart-title"><strong>近 7 天趨勢</strong><small>截至 ${dayLabel} · 缺少資料不補零</small></div>
-    ${chart}
-    <div class="msj-activity-footer"><span>全日活動熱量：${isHealth ? "已同步" : "待設定捷徑"}</span></div>
+    <div class="msj-activity-progress-foot"><span>${actual === null ? "尚無消耗紀錄" : homeNumber.format(Math.round(actual)) + " kcal 已記錄"}</span><span>App 參考 ${homeNumber.format(target)} kcal</span></div>
+    <p class="msj-activity-hint">${isHealth ? "Move 已包含在 TOTAL；App 參考目標可能與 Apple 圓環不同。" : "運動消耗僅供參考，不必每天達標。"}</p>
+    <p class="msj-activity-source-note">點整張卡片可查看當日運動項目與本週活動；完整圖表放在運動頁。</p>
     <p class="home-note msj-activity-help" id="homeHealthStatus">同步健康會啟動捷徑；「更新」僅讀取已上傳的資料。</p>
     <button type="button" data-tab="activity" class="msj-stretch-link" aria-label="查看所選日期的運動紀錄"></button>
   </section>`;

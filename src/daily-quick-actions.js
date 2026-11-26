@@ -202,13 +202,25 @@ export function mountActivityDedupeView(db,uid){
     return m?m[0].replaceAll('/','-'):today();
   };
   async function loadRows(from,to){return await ensureRows(db.from('activity_logs')
-    .select('id,activity_type,duration_minutes,calories_burned,steps,logged_at,created_at,notes')
+    .select('id,activity_type,duration_minutes,calories_burned,steps,logged_at,created_at,notes,total_calories,resting_calories')
     .eq('user_id',uid).gte('logged_at',start(from)).lt('logged_at',end(to)).order('logged_at').limit(700));}
   async function patchDay(){
     const version=++seq,day=getSelected();
     try{
       const rows=await loadRows(day,day);if(version!==seq||!stats.isConnected||getSelected()!==day)return;
       const result=summarizeDay(rows);
+      // Apple TOTAL belongs to the daily summary, not workout rows.
+      const totals=rows.filter(row=>row.activity_type==='Apple 健康每日摘要' && row.total_calories!==null && row.total_calories!==undefined &&
+        Number.isFinite(Number(row.total_calories)) && Number(row.total_calories)>=0)
+        .sort((a,b)=>Date.parse(b.created_at||b.logged_at)-Date.parse(a.created_at||a.logged_at));
+      const total=totals.length?Number(totals[0].total_calories):null;
+      const activityMetrics=stats.querySelector('.an-activity-metrics');
+      if(activityMetrics){
+        let totalTile=stats.querySelector('.msj-activity-day-total');
+        if(!totalTile){totalTile=document.createElement('div');totalTile.className='msj-activity-day-total';activityMetrics.before(totalTile);}
+        const html=`<span><b>${day===today()?'今日目前累積總消耗':'Apple Fitness 全天總消耗'}</b><small>Apple TOTAL · 靜態＋活動（不再加運動）</small></span><strong>${total===null?'尚未同步':Math.round(total).toLocaleString('zh-TW')+' <small>kcal</small>'}</strong>`;
+        if(totalTile.innerHTML!==html)totalTile.innerHTML=html;
+      }
       const metrics=stats.querySelectorAll('.an-activity-metrics > div');
       if(metrics.length>=4){
         metrics[0].querySelector('b').textContent=String(result.workouts.length);
