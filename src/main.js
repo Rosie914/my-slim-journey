@@ -687,7 +687,8 @@ function renderHomeEnergyPlan(goal, recordedActivity, date) {
       <div class="msj-activity-stat msj-activity-stat-steps"><small>當日步數</small><strong>${steps === null ? '—' : homeNumber.format(Math.round(steps))}</strong><span>${steps === null ? '待同步' : '步'}</span></div>
       <div class="msj-activity-stat msj-activity-stat-workout"><small>運動消耗</small><strong>${fmtKcal(workout)}</strong><span>${workout === null ? '未記錄' : 'kcal · 紀錄'}</span></div>
     </div>
-    ${stack}
+    <div id="msjHomeDailyBalance" class="msj-home-balance" data-date="${date}" aria-live="polite"><p class="msj-home-balance-loading">正在讀取當日熱量收支…</p></div>
+    ${validSplit ? `<details class="msj-home-energy-details"><summary>查看 Apple 靜態／活動熱量組成</summary>${stack}</details>` : total === null ? stack : ''}
     <p class="msj-activity-workout-note">${workoutNote}</p>
     ${workout !== null ? `<p class="msj-activity-goal-note">運動參考 ${homeNumber.format(workoutTarget)} kcal · 約 ${Math.round(workout/workoutTarget*100)}%，不是每日必須達標的目標。</p>` : ''}
     <p class="home-note msj-activity-help" id="homeHealthStatus">「同步健康」執行 Apple Fitness 捷徑；「更新」讀取已上傳資料。</p>

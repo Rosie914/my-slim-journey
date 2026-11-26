@@ -49,3 +49,29 @@
 .coach-deficit .msj-balance-result strong small{font-size:12px;color:#887389;font-weight:450;letter-spacing:0;}
 .coach-deficit .msj-balance-caution{margin:10px 0 0!important;font-size:12px;color:#918091;line-height:1.6;}
 @media(max-width:365px){.coach-deficit .msj-balance-result{padding:10px}.coach-deficit .msj-balance-result strong{font-size:20px}.coach-deficit .msj-balance-caption b{font-size:15px}}
+
+/* 2026-11 Coach: weekly goal + a compact daily chart. Full daily balance lives on Home only. */
+.coach-deficit .msj-deficit-graph-list{display:grid;gap:11px;margin:4px 0 14px;}
+.coach-deficit .msj-deficit-graph-day{min-width:0;padding:12px 12px 11px;border:1px solid #ede3eb;border-radius:15px;background:rgba(255,255,255,.79);}
+.coach-deficit .msj-deficit-graph-day-top{display:grid;grid-template-columns:minmax(0,1fr) auto;row-gap:3px;column-gap:10px;align-items:center;margin-bottom:10px;min-width:0;}
+.coach-deficit .msj-deficit-graph-day-top time{grid-column:1;grid-row:1;color:#624b63;font-weight:720;font-size:14px;white-space:nowrap;font-variant-numeric:tabular-nums;}
+.coach-deficit .msj-deficit-graph-day-top time small{font-size:11px;color:#9a8798;font-weight:500;}
+.coach-deficit .msj-deficit-graph-delta{grid-column:2;grid-row:1;font-size:16px;font-weight:750;color:#78547b;font-variant-numeric:tabular-nums;white-space:nowrap;}
+.coach-deficit .msj-deficit-graph-day.below .msj-deficit-graph-delta{color:#ac748b;}
+.coach-deficit .msj-deficit-graph-day.pending .msj-deficit-graph-delta{color:#a89ca6;}
+.coach-deficit .msj-deficit-graph-status{grid-column:1/-1;grid-row:2;color:#928292;font-size:11px;line-height:1.35;overflow-wrap:anywhere;}
+.coach-deficit .msj-deficit-graph-bars{display:grid;gap:10px;min-width:0;}
+.coach-deficit .msj-deficit-graph-barline{display:grid;gap:4px;min-width:0;}
+.coach-deficit .msj-deficit-graph-barlabel{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:11px;color:#867583;}
+.coach-deficit .msj-deficit-graph-barlabel strong{font-size:12px;color:#654d65;font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums;}
+.coach-deficit .msj-deficit-graph-barlabel strong small{font-size:10px;color:#938392;font-weight:500;}
+.coach-deficit .msj-deficit-graph-bartrack{height:10px;background:#f1eaf0;overflow:hidden;border-radius:99px;}
+.coach-deficit .msj-deficit-graph-bartrack i{display:block;height:100%;border-radius:inherit;}
+.coach-deficit .msj-deficit-graph-burn{background:linear-gradient(90deg,#d0aedb,#ad8ac1);}
+.coach-deficit .msj-deficit-graph-eat{background:linear-gradient(90deg,#efd9e3,#dcb4ca);}
+.coach-deficit .msj-deficit-graph-disclaimer{font-size:11px;color:#927f90;line-height:1.55;margin:5px 0 14px;}
+@media(max-width:360px){
+ .coach-deficit .msj-deficit-graph-day{padding:11px 9px 10px;}
+ .coach-deficit .msj-deficit-graph-day-top time{font-size:13px;}
+ .coach-deficit .msj-deficit-graph-delta{font-size:15px;}
+}

@@ -113,3 +113,34 @@
   .home-dashboard .msj-activity-stat small,.home-dashboard .msj-activity-stat span{font-size:10px;}
   .home-dashboard .msj-energy-breakdown-legend{font-size:11px;}
 }
+
+/* 2026-11 Home: the day's ONE energy balance chart belongs below the existing three metrics. */
+.home-dashboard .msj-home-balance{margin:14px 0 3px;min-width:0;}
+.home-dashboard .msj-home-balance-loading{font-size:12px;color:#99899a;margin:8px 0 14px;}
+.home-dashboard .msj-home-balance-panel{padding:15px 14px 13px;border:1px solid #eee2eb;border-radius:17px;background:linear-gradient(128deg,#fffdfd,#faf5fa);color:#634d61;min-width:0;}
+.home-dashboard .msj-home-balance-header{display:flex;justify-content:space-between;align-items:baseline;gap:5px 9px;flex-wrap:wrap;margin:0 0 13px;}
+.home-dashboard .msj-home-balance-header>strong{font-size:15px;color:#624c61;}
+.home-dashboard .msj-home-balance-header>small{font-size:11px;color:#917f90;}
+.home-dashboard .msj-home-balance-bars{display:grid;gap:13px;min-width:0;}
+.home-dashboard .msj-home-balance-barline{display:grid;gap:6px;min-width:0;}
+.home-dashboard .msj-home-balance-barlabel{display:flex;justify-content:space-between;align-items:baseline;gap:8px;color:#806e7c;font-size:12px;}
+.home-dashboard .msj-home-balance-barlabel strong{font-size:16px;font-variant-numeric:tabular-nums;color:#634d61;white-space:nowrap;}
+.home-dashboard .msj-home-balance-barlabel strong small{font-size:11px;font-weight:500;color:#8b7a88;}
+.home-dashboard .msj-home-balance-bartrack{background:#f0e8f0;border-radius:99px;height:13px;overflow:hidden;}
+.home-dashboard .msj-home-balance-bartrack i{display:block;height:100%;border-radius:inherit;transition:width .2s ease;}
+.home-dashboard .msj-home-balance-burn{background:linear-gradient(90deg,#cda9d6,#a889bd);}
+.home-dashboard .msj-home-balance-eat{background:linear-gradient(90deg,#efd6e2,#d9aec8);}
+.home-dashboard .msj-home-balance-result{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:13px 0 0;padding:10px 12px;border-radius:12px;background:#f6edf5;}
+.home-dashboard .msj-home-balance-result>span{font-size:12px;color:#806d7e;min-width:0;}
+.home-dashboard .msj-home-balance-result strong{font-size:22px;line-height:1.3;font-variant-numeric:tabular-nums;letter-spacing:-.03em;white-space:nowrap;color:#75567e;}
+.home-dashboard .msj-home-balance-result strong small{font-size:11px;font-weight:500;letter-spacing:0;}
+.home-dashboard .msj-home-balance-note{font-size:11px;color:#968692;line-height:1.5;margin:9px 0 0!important;}
+.home-dashboard .msj-home-energy-details{position:relative;z-index:2;margin:12px 0 0;border-top:1px solid #f1eaf0;padding-top:4px;}
+.home-dashboard .msj-home-energy-details>summary{cursor:pointer;color:#917e8d;font-size:12px;list-style-position:inside;padding:8px 0;}
+.home-dashboard .msj-home-energy-details .msj-energy-breakdown{padding:12px 0 5px;}
+@media(max-width:365px){
+ .home-dashboard .msj-home-balance-panel{padding:13px 11px;}
+ .home-dashboard .msj-home-balance-result strong{font-size:19px;}
+ .home-dashboard .msj-home-balance-header>strong{font-size:14px;}
+}
+@media(prefers-reduced-motion:reduce){.home-dashboard .msj-home-balance-bartrack i{transition:none;}}

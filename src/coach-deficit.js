@@ -84,8 +84,8 @@ export async function mountCoachDeficit(db, uid, profile, latestWeight, referenc
     try {
       const overview = await loadWeekDeficit(db, uid, goal, date);
       if (!records.isConnected) return;
-      records.innerHTML = renderCoachDeficitDetails(overview)
-        + '<p class="coach-deficit-note">優先依 Apple Fitness 全天總消耗減飲食估算；未同步時才採久坐基準 TDEE 加去重運動。兩者都屬估算值，並對照你原本的階段計畫。</p>';
+      // The source/method explanation already lives in the expandable detail of the chart.
+      records.innerHTML = renderCoachDeficitDetails(overview);
     } catch (error) {
       console.warn("[Coach] meal history loading failed", error?.code || error?.name || "UnknownError");
       if (!records.isConnected) return;
